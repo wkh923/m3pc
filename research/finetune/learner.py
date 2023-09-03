@@ -3,12 +3,15 @@ from research.finetune.masks import *
 from research.finetune.replay_buffer import ReplayBuffer
 from research.mtm.models.mtm_model import MTM
 from research.mtm.tokenizers.base import TokenizerManager
-from typing import Dict
+from research.mtm.datasets.sequence_dataset import Trajectory
+from collections import defaultdict
+from typing import Any, Dict
 
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
+import tqdm
 
 
 
@@ -225,9 +228,10 @@ class Learner(object):
             target_param.data.copy_(self.cfg.tau * param.data + (1.0 - self.cfg.tau) * target_param.data)
     
     
-    
-    
     def action_sample(self, observations, action_dim, percentage=1.0):
+        if observations.ndim == 1:
+            observations = observations.unsqueeze(0)
+        
         zero_trajectory = {
             "states": np.zeros((observations.shape[0], self.cfg.traj_length, observations.shape[-1])),
             "actions": np.zeros((observations.shape[0], self.cfg.traj_length, action_dim)),
@@ -251,6 +255,9 @@ class Learner(object):
             pred = self.mtm(encode, torch_rcbc_mask)
         actions = self.tokenizer_manager.decode(pred)["actions"][:, 0, :].cpu().np()
         
+        if observations.ndim == 1:
+            actions = actions.squeeze(0)
+        
         return actions    
     
     def evaluate(self,
@@ -269,25 +276,25 @@ class Learner(object):
         videos = []
         
         for i in pbar:
-            observation, done = env.reset(), False
-            trajectory_history = Trajectory.create_empty(env.observation_space.shape, env.action_space.shape)
+            observation, done = self.env.reset(), False
+            trajectory_history = Trajectory.create_empty(self.env.observation_space.shape, self.env.action_space.shape)
             if len(videos) < num_videos:
                 try:
-                    imgs = [env.sim.render(64, 48, camera_name="track")[::-1]]
+                    imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
                 except:
-                    imgs = [env.render()[::-1]]
+                    imgs = [self.env.render()[::-1]]
             
             while not done:
-                action = self.action_sample(observation, env.action_space.shape, percentage=1.0)
+                action = self.action_sample(observation, self.env.action_space.shape, percentage=1.0)
                 action = np.clip(action, self.cfg.clip_min, self.cfg.clip_max)
-                new_observation, reward, done, info = env.step(action)
+                new_observation, reward, done, info = self.env.step(action)
                 trajectory_history = trajectory_history.append(observation, action, reward)
                 observation = new_observation
                 if len(videos) < num_videos:
                     try:
-                        imgs.append(env.sim.render(64, 48, camera_name="track")[::-1])
+                        imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
                     except:
-                        imgs.append(env.render()[::-1])
+                        imgs.append(self.env.render()[::-1])
             
             if len(videos) < num_videos:
                 videos.append(np.array(imgs[:-1]))
