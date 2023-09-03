@@ -21,7 +21,6 @@ class Learner(object):
                  model: MTM,
                  critic_model,
                  tokenizer_manager: TokenizerManager,
-                 buffer: ReplayBuffer,
                  discrete_map: Dict[str, torch.Tensor]
                  ):
         self.cfg = cfg
@@ -29,7 +28,6 @@ class Learner(object):
         self.critic_model = critic_model
         self.critic_target = critic_model
         self.tokenizer_manager = tokenizer_manager
-        self.buffer = buffer
         self.discrete_map = discrete_map
         self.mtm_optimizer = MTM.configure_optimizers(
             self.mtm,

@@ -16,7 +16,6 @@ import torch.nn.functional as F
 import torch.nn.parallel
 import wandb
 from omegaconf import DictConfig, OmegaConf
-import torch.dis
 
 
 
@@ -150,12 +149,6 @@ def main(hydra_cfg):
         discrete_map[k] = v.discrete
     logger.info(f"Tokenizers: {tokenizers}")
     
-    env = make_env(cfg.env_name, cfg.seed)
-    assert discrete_map["actions"] == isinstance(env.action_space, gym.spaces.Discrete)
-    assert discrete_map["states"] == isinstance(env.observation_space, gym.spaces.Discrete)
-    action_shape = env.action_space.shape if not discrete_map["actions"] else (1,)
-    observation_shape = env.observation_space.shape if not discrete_map["states"] else (1,)
-    
     buffer = ReplayBuffer(train_dataset, cfg.discount, cfg.traj_length, batch_size=cfg.batch_size, 
                           buffer_size=cfg.buffer_size, name=cfg.env_name, mode="prob")
     dataloader = iter(buffer)
@@ -172,10 +165,14 @@ def main(hydra_cfg):
     pretrain_model.load_state_dict(torch.load(pretrain_model_path + "model_60000.pt")["model"])
     pretrain_model.to(cfg.device)
     
+    #TODO: load pretrain critic model
+    
+    
+    
     learner = Learner(cfg, pretrain_model, critic_model, tokenizer_manager, discrete_map)
     
     
-    
+    #TODO: Train and evaluate the model according to config file
     
 
 @hydra.main(config_path=".", config_name="config", version_base = "1.1")
