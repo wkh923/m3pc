@@ -22,9 +22,9 @@ args:
     seed: 0
     batch_size: 2048
     n_workers: 10
-    traj_length: 4
+    traj_length: 8
 
-    ### Debug
+    # ## Debug
     # log_every: 1
     # print_every: 1
     # eval_every: 1
@@ -47,10 +47,10 @@ args:
 
 
 wandb:
-  project: experiments
-  entity: ""
-  resume: null
-  # resume: allow
+  project: worldgpt
+  entity: "wkh923"
+  #resume: null
+  resume: allow
 
 job_name: job
 

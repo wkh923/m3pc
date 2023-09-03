@@ -1,0 +1,74 @@
+pretrain_model_path: /home/unitree/mtm/outputs/mtm_mae/2023-08-23_14-38-33/
+
+pretrain_args:
+    env_name: "Hopper-v2"
+    traj_length: 8
+
+pretrain_dataset:
+    _target_: research.mtm.datasets.d4rl_ds.get_datasets
+    seq_steps: ???
+    env_name: hopper-expert-v2
+    use_reward: true
+    seed: 0
+    discount: 1.5
+    train_val_split: 0.9999
+
+tokenizers:
+    states:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    actions:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    returns:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    rewards:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+
+
+model_config:
+    _target_: research.mtm.models.mtm_model.MTMConfig
+    norm: none
+    n_embd: 512
+    n_enc_layer: 2
+    n_dec_layer: 1
+    n_head: 4
+    dropout: 0.1
+    loss_keys: null
+    latent_dim: null
+
+finetune_args: 
+    _target_: research.finetune.train.RunConfig
+    discount: 
+    seed: 0
+    batch_size: 2048
+    buffer_size: 8192
+    
+    print_every:
+    log_every:
+    eval_every:
+    save_every:
+    
+    device: cuda
+
+    warmup_steps:
+    num_train_steps:
+    learning_rate:
+    weight_decay:
+
+    policy_std:
+    n_iter:
+    n_rsamples:
+    n_policy_samples:
+    top_k:
+    use_masked_loss:
+    loss_weight: {"actions":  1.0,"states": 1.0, "returns": 1.0, "rewards": 1.0, "policy": 1.0}
+
+    clip_min:
+    clip_max:
+    action_noise_std:
+    tau:
+
+
+wandb:
+    project: d4rl_finetune
+    entity: wkh923
+    resume: allow

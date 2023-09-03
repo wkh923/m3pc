@@ -80,10 +80,12 @@ def eval_fd(
     actions_mask1 = torch.zeros(seq_len, device=device)
     actions_mask1[-2] = 1
     returns_mask = torch.zeros(seq_len, device=device)
+    rewards_mask = torch.zeros(seq_len, device=device)
     masks = {
         "states": obs_mask1,
         "actions": actions_mask1,
         "returns": returns_mask,
+        "rewards": rewards_mask
     }
 
     predictions = model.mask_git_forward(
@@ -119,10 +121,12 @@ def eval_id(
     obs_mask1 = torch.ones(seq_len, device=device)
     actions_mask1 = torch.zeros(seq_len, device=device)
     returns_mask = torch.zeros(seq_len, device=device)
+    rewards_mask = torch.zeros(seq_len, device=device)
     masks = {
         "states": obs_mask1,
         "actions": actions_mask1,
         "returns": returns_mask,
+        "rewards": rewards_mask
     }
 
     predictions = model.mask_git_forward(
