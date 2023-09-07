@@ -37,7 +37,7 @@ def get_datasets(
         use_reward=use_reward,
         name=env_name,
     )
-    return train_dataset, val_dataset
+    return train_dataset, val_dataset, train_d
 
 
 def main():

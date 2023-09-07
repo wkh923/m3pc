@@ -1,6 +1,5 @@
-from research.finetune.finetune import RunConfig
 from research.finetune.masks import *
-from research.finetune.replay_buffer import ReplayBuffer
+from research.finetune.model import Critic
 from research.mtm.models.mtm_model import MTM
 from research.mtm.tokenizers.base import TokenizerManager
 from research.mtm.datasets.sequence_dataset import Trajectory
@@ -12,21 +11,31 @@ import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
 import tqdm
+import wandb
+import gym
 
 
 
 class Learner(object):
     def __init__(self,
-                 cfg: RunConfig,
-                 model: MTM,
-                 critic_model,
+                 cfg,
+                 env: gym.Env,
+                 data_shapes,
+                 model_config,
+                 pretrain_model_path,
+                 pretrain_critic_path,
                  tokenizer_manager: TokenizerManager,
                  discrete_map: Dict[str, torch.Tensor]
                  ):
         self.cfg = cfg
-        self.mtm = model
-        self.critic_model = critic_model
-        self.critic_target = critic_model
+        self.env = env
+        self.mtm = model_config.create(data_shapes, cfg.traj_length)
+        self.mtm.load_state_dict(torch.load(pretrain_model_path)["model"])
+        self.mtm.to(cfg.device)
+        self.critic = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
+        self.critic.load_state_dict(torch.load(pretrain_critic_path))
+        self.critic_target = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
+        self.critic_target.load_state_dict(torch.load(pretrain_critic_path))
         self.tokenizer_manager = tokenizer_manager
         self.discrete_map = discrete_map
         self.mtm_optimizer = MTM.configure_optimizers(
@@ -49,13 +58,13 @@ class Learner(object):
 
         self.mtm_scheduler = LambdaLR(self.mtm_optimizer, lr_lambda=_schedule)
         
-        self.critic_optimizer = torch.optim.Adam(self.critic_model.parameters(),
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
                                                  lr=self.cfg.learning_rate,
-                                                 weght_decay = self.cfg.weight_decay,
+                                                 weight_decay = self.cfg.weight_decay,
                                                  betas=(0.9, 0.999))
         self.critic_scheduler = LambdaLR(self.critic_optimizer, lr_lambda=_schedule)
     
-    def compute_mtm_loss(self, batch: Dict[str: torch.Tensor]):
+    def compute_mtm_loss(self, batch: Dict[str, torch.Tensor]):
         
         action_dim = batch["actions"].shape[-1]
         
@@ -63,8 +72,8 @@ class Learner(object):
             
             cem_init_mean = self.tokenizer_manager.tokenizers["actions"].stats.mean
             cem_init_std = self.tokenizer_manager.tokenizers["actions"].stats.std
-            cem_init_mean = torch.tensor(cem_init_mean, device=self.cfg.device).unsqueeze(0)
-            cem_init_std = torch.tensor(cem_init_std, device=self.cfg.device).unsqueeze(0)
+            cem_init_mean = torch.from_numpy(cem_init_mean).to(self.cfg.device).unsqueeze(0)
+            cem_init_std = torch.from_numpy(cem_init_std).to(self.cfg.device).unsqueeze(0)
             with torch.no_grad():
                 for it in range(self.cfg.n_iter):
                     
@@ -86,16 +95,16 @@ class Learner(object):
                     torch_future_prediction_mask = create_future_prediction_mask(self.cfg.traj_length, self.cfg.device)
                     pred = self.mtm(encode_batch, torch_future_prediction_mask)
                     decode = self.tokenizer_manager.decode(pred)
-                    future_rewards = decode["rewards"][:, :-1, :].squeeze #(num_samples, traj_length - 1)
+                    future_rewards = decode["rewards"][:, :-1, :].squeeze(-1) #(num_samples, traj_length - 1)
                     discounts = torch.tensor([self.cfg.discount ** i for i in range(future_rewards.shape[1])], device=self.cfg.device)[None, :]
-                    
                     expected_return = (future_rewards * discounts).sum(dim=1) \
-                        + self.critic_model(decode["states"][:, -1, :], decode["actions"][:, -1, :]) * (self.cfg.discount ** future_rewards.shape[1])
+                        + (self.critic(decode["states"][:, -1, :], decode["actions"][:, -1, :]) * (self.cfg.discount ** future_rewards.shape[1])).squeeze(-1)
                     
                     _, sorted_indices = torch.sort(expected_return, descending=True)
                     top_k_actions = action_samples[sorted_indices[:self.cfg.top_k]]
                     
                     cem_init_mean = torch.mean(top_k_actions, dim=0)
+                    #TODO: revise CEM implementation
                     cem_init_std = torch.std(top_k_actions, dim=0, unbiased=False)
             
             return cem_init_mean, cem_init_std
@@ -147,7 +156,7 @@ class Learner(object):
         for traj_indx in range(batch_size):
             trajectory = {k:v[traj_indx].unsqueeze(0) for k, v in batch.items()}
             target_mean, target_std = compute_target_cem_action(trajectory)
-            policy_loss += ((actions[traj_indx] - target_mean.squeeze(0)) ** 2) / (target_std.squeeze(0) ** 2)
+            policy_loss += (((actions[traj_indx] - target_mean.squeeze(0)) ** 2) / (target_std.squeeze(0) ** 2)).mean()
         policy_loss /= batch_size
         
         losses["policy"] = policy_loss
@@ -174,13 +183,21 @@ class Learner(object):
         next_states = next_states.reshape(-1, next_states.shape[-1])
         
         # Predicted Q-values for the current state-action pairs
-        predicted_q_values = self.critic_model(states, actions)
+        predicted_q_values = self.critic(states, actions).squeeze(-1)
     
-        next_actions = self.action_sample(next_states, actions.shape[-1], 1)
-        target_next_q = self.critic_target(next_states, next_actions)
-        target_q_values = rewards + self.cfg.discount * target_next_q
+        with torch.no_grad():
+            next_actions = self.action_sample(next_states, actions.shape[-1], 1)
+            next_actions = torch.from_numpy(next_actions).to(self.cfg.device)
+            target_next_q = self.critic_target(next_states, next_actions).squeeze(-1)
+            target_q_values = rewards + self.cfg.discount * target_next_q
         
-        q_loss = nn.MSELoss(predicted_q_values, target_q_values)
+        abs = torch.abs(predicted_q_values - target_q_values)
+        sort_abs, sort_indx = torch.sort(abs, descending=True)
+        print(states[sort_indx[0]], actions[sort_indx[0]], next_states[sort_indx[0]], next_actions[sort_indx[0]])
+        print(predicted_q_values[sort_indx[0]], target_q_values[sort_indx[0]])
+        
+        q_loss_fn = nn.MSELoss()
+        q_loss = q_loss_fn(predicted_q_values, target_q_values)
         
         return q_loss
     
@@ -209,10 +226,12 @@ class Learner(object):
         critic_loss = self.compute_q_loss(batch)
         
         log_dict = {}
+        print(critic_loss)
+
         log_dict[f"train/q_loss"] = critic_loss.item()
         
         #backprop
-        self.critic_model.zero_grad(set_to_none=True)
+        self.critic.zero_grad(set_to_none=True)
         critic_loss.backward()
         
         self.critic_optimizer.step()
@@ -222,14 +241,21 @@ class Learner(object):
         
     def critic_target_soft_update(self):
         
-        for target_param, param in zip(self.critic_target.parameters(), self.critic_model.parameters()):
+        for target_param, param in zip(self.critic_target.parameters(), self.critic.parameters()):
             target_param.data.copy_(self.cfg.tau * param.data + (1.0 - self.cfg.tau) * target_param.data)
     
     
     def action_sample(self, observations, action_dim, percentage=1.0):
-        if observations.ndim == 1:
-            observations = observations.unsqueeze(0)
         
+        one_action = False
+        if isinstance(observations, np.ndarray):
+            observations = torch.from_numpy(observations).to(self.cfg.device)
+        
+        
+        if observations.dim() == 1:
+            one_action = True
+            observations = observations.unsqueeze(0)
+
         zero_trajectory = {
             "states": np.zeros((observations.shape[0], self.cfg.traj_length, observations.shape[-1])),
             "actions": np.zeros((observations.shape[0], self.cfg.traj_length, action_dim)),
@@ -238,25 +264,26 @@ class Learner(object):
         }
         torch_zero_trajectories = {
             k: torch.tensor(v, device=self.cfg.device) for k, v in zero_trajectory.items()}
-        torch_zero_trajectories["states"][:, 0] = torch.tensor(observations)
+        torch_zero_trajectories["states"][:, 0] = observations
         return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
         return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
         
         return_value = return_min + (return_max - return_min) * percentage
         return_to_go = float(return_value)
-        returns = return_to_go * np.ones((observations.shape[0], self.traj_length, 1))
-        torch_zero_trajectories["returns"] = torch.tensor(returns)
+        returns = return_to_go * np.ones((observations.shape[0], self.cfg.traj_length, 1))
+        torch_zero_trajectories["returns"] = torch.from_numpy(returns).to(self.cfg.device)
         
         torch_rcbc_mask = create_rcbc_mask(self.cfg.traj_length, self.cfg.device)
         encode = self.tokenizer_manager.encode(torch_zero_trajectories)
         with torch.no_grad():
             pred = self.mtm(encode, torch_rcbc_mask)
-        actions = self.tokenizer_manager.decode(pred)["actions"][:, 0, :].cpu().np()
+        actions = self.tokenizer_manager.decode(pred)["actions"][:, 0, :]
         
-        if observations.ndim == 1:
+        if one_action:
             actions = actions.squeeze(0)
         
-        return actions    
+        
+        return actions.cpu().numpy()    
     
     def evaluate(self,
                  num_episodes: int,
@@ -283,7 +310,7 @@ class Learner(object):
                     imgs = [self.env.render()[::-1]]
             
             while not done:
-                action = self.action_sample(observation, self.env.action_space.shape, percentage=1.0)
+                action = self.action_sample(observation, self.env.action_space.shape[-1], percentage=1.0)
                 action = np.clip(action, self.cfg.clip_min, self.cfg.clip_max)
                 new_observation, reward, done, info = self.env.step(action)
                 trajectory_history = trajectory_history.append(observation, action, reward)
@@ -314,7 +341,6 @@ class Learner(object):
             else:
                 stats["return"].append(trajectory_history.rewards.sum())
                 stats["length"].append(len(trajectory_history.rewards))
-                stats["achieved"].append(int(info["goal_achieved"]))
         
         new_stats = {}
         for k, v in stats.items():
@@ -326,5 +352,13 @@ class Learner(object):
 
         if successes is not None:
             stats["success"] = successes / num_episodes
+            
+        log_data = {}
+        for k, v in stats.items():
+            log_data[f"eval_bc/{k}"] = v
+        for idx, v in enumerate(videos):
+            log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
+                v.transpose(0, 3, 1, 2), fps=10, format="gif"
+            )
 
-        return stats, videos
+        return log_data

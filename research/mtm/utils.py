@@ -27,11 +27,11 @@ def load_hydra_path(path):
     return hydra_cfg
 
 
-def get_ckpt_path_from_folder(folder) -> Optional[str]:
+def get_ckpt_path_from_folder(folder, model: str = "model") -> Optional[str]:
     steps = []
     names = []
     paths_ = os.listdir(folder)
-    for name in [os.path.join(folder, n) for n in paths_ if "pt" in n]:
+    for name in [os.path.join(folder, n) for n in paths_ if "pt" in n and model in n]:
         step = os.path.basename(name).split("_")[-1].split(".")[0]
         steps.append(step)
         names.append(name)

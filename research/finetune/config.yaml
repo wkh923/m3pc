@@ -1,4 +1,5 @@
-pretrain_model_path: /home/unitree/mtm/outputs/mtm_mae/2023-08-23_14-38-33/
+pretrain_model_path: /home/unitree/mtm/outputs/mtm_mae/2023-09-03_18-48-03/model_140010.pt
+pretrain_critic_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-expert-v2critic2.pt
 
 pretrain_args:
     env_name: "Hopper-v2"
@@ -36,36 +37,41 @@ model_config:
     latent_dim: null
 
 finetune_args: 
-    _target_: research.finetune.train.RunConfig
-    discount: 
+    _target_: research.finetune.finetune.RunConfig
+    discount: 0.99
     seed: 0
-    batch_size: 2048
-    buffer_size: 8192
-    
-    print_every:
-    log_every:
-    eval_every:
-    save_every:
-    
+    batch_size: 256
+    warmup_steps: 0
+    num_train_steps: 100000
+    learning_rate: 5e-4
+    weight_decay: 5e-3
     device: cuda
-
-    warmup_steps:
-    num_train_steps:
-    learning_rate:
-    weight_decay:
-
-    policy_std:
-    n_iter:
-    n_rsamples:
-    n_policy_samples:
-    top_k:
-    use_masked_loss:
+    use_masked_loss: False
     loss_weight: {"actions":  1.0,"states": 1.0, "returns": 1.0, "rewards": 1.0, "policy": 1.0}
+    
+    #debug
+    print_every: 1
+    log_every: 1
+    eval_every: 1
+    save_every: 1
+    
+    #cem 
+    policy_std: 0.2
+    n_iter: 5
+    n_rsamples: 900
+    n_policy_samples: 100
+    top_k: 100
 
-    clip_min:
-    clip_max:
-    action_noise_std:
-    tau:
+    #replay buffer
+    buffer_size: 1000
+    pretrain_discount: 1.5
+    num_updates_per_online_rollout: 300
+    clip_min: -1.0
+    clip_max: 1.0
+    action_noise_std: 0.2
+    tau: 5e-3
+
+    critic_hidden_size: 256
 
 
 wandb:

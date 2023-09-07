@@ -713,7 +713,7 @@ def _main(hydra_cfg):
     train_dataset: DatasetProtocol
     val_dataset: DatasetProtocol
 
-    train_dataset, val_dataset = hydra.utils.call(
+    train_dataset, val_dataset, _ = hydra.utils.call(
         hydra_cfg.dataset, seq_steps=cfg.traj_length
     )
     logger.info(f"Train set size = {len(train_dataset)}")

@@ -93,8 +93,8 @@ class ReplayBuffer:
         )
         #  assert len(set(self.path_lengths)) == 1
         
-        self.trajectory_returns = self.rewards_segmented[:, :].sum(axis=1) ##[n_paths]
-        sorted_index = np.argsort(self.trajectory_returns, axis = -1)[::-1]
+        self.trajectory_returns = self.rewards_segmented[:, :].sum(axis=(1, 2), keepdims=False) ##[n_paths]
+        sorted_index = np.argsort(self.trajectory_returns, axis = 0)[::-1]
         self.path_lengths = np.array(self.path_lengths)[sorted_index]
         self.observations_segmented = self.observations_segmented[sorted_index]
         self.actions_segmented = self.actions_segmented[sorted_index]
@@ -125,7 +125,7 @@ class ReplayBuffer:
                        model: MTM,
                        tokenizer_manager: TokenizerManager,
                        device: str,
-                       num_trajectories: int = 10,
+                       num_trajectories: int = 300,
                        percentage: float = 1.0,
                        clip_min: float = -0.1,
                        clip_max: float = 0.1,
@@ -250,8 +250,10 @@ class ReplayBuffer:
             'states': np.stack(sampled_observations),
             'actions': np.stack(sampled_actions),
             'rewards': np.stack(sampled_rewards),
-            'values': np.stack(sampled_values)
+            'returns': np.stack(sampled_values)
         }
+        
+        batch = {k: torch.tensor(v) for k, v in batch.items()}
 
         return batch
     
