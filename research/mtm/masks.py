@@ -270,9 +270,9 @@ def create_rcbc_mask(
 
 
 def create_random_autoregressize_mask(
-    data_shapes, mask_ratios, traj_length, device, p_weights=(0.2, 0.1, 0.7)
+    data_shapes, mask_ratios, traj_length, device, p_weights=(0, 0, 0.7, 0.3)
 ) -> Dict[str, np.ndarray]:
-    mode_order = ["states", "returns", "actions"]
+    mode_order = ["returns", "states", "actions", "rewards"]
     random_mode = np.random.choice(mode_order, p=p_weights)
     random_position = np.random.randint(0, traj_length)
     masks = {}

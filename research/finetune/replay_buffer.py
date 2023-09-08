@@ -24,7 +24,8 @@ class ReplayBuffer:
         use_reward: bool = True,
         name: str = "",
         mode: str = "random",
-        max_iterations: int = 10
+        max_iterations: int = 10,
+        shuffle: bool = True
     ):
         self.env = dataset.env
         self.dataset = dataset
@@ -112,6 +113,11 @@ class ReplayBuffer:
             else:
                 keep_idx.append(idx)
                 traj_count += 1
+        
+        if shuffle:
+            shuffle_indices = np.arange(len(keep_idx))
+            np.random.shuffle(shuffle_indices)
+            keep_idx = keep_idx[shuffle_indices]
         
         self.path_lengths = self.path_lengths[keep_idx]
         self.observations_segmented = self.observations_segmented[keep_idx]

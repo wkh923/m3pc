@@ -100,12 +100,11 @@ class Learner(object):
                     expected_return = (future_rewards * discounts).sum(dim=1) \
                         + (self.critic(decode["states"][:, -1, :], decode["actions"][:, -1, :]) * (self.cfg.discount ** future_rewards.shape[1])).squeeze(-1)
                     
-                    _, sorted_indices = torch.sort(expected_return, descending=True)
+                    sorted_return, sorted_indices = torch.sort(expected_return, descending=True)
                     top_k_actions = action_samples[sorted_indices[:self.cfg.top_k]]
                     
-                    cem_init_mean = torch.mean(top_k_actions, dim=0)
-                    #TODO: revise CEM implementation
-                    cem_init_std = torch.std(top_k_actions, dim=0, unbiased=False)
+                    cem_init_mean = top_k_actions * sorted_return[:, None] / sorted_return.sum()
+                    cem_init_std = torch.sqrt(((top_k_actions - cem_init_mean) ** 2 * sorted_return[:, None] / sorted_return.sum()).sum(dim=0), keepdim=True)
             
             return cem_init_mean, cem_init_std
         
