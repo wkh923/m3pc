@@ -8,13 +8,14 @@ from research.mtm.models.mtm_model import MTM
 from research.mtm.datasets.base import DataStatistics
 from research.mtm.datasets.sequence_dataset import Trajectory, segment
 from research.mtm.tokenizers.base import TokenizerManager
-from research.finetune.masks import create_rcbc_mask
+from research.finetune.masks import *
 
 class ReplayBuffer:
     """For trajectory transformer
     """
     def __init__(
         self,
+        cfg,
         dataset: D4RLDataset,
         discount: float = 0.99,
         sequence_length: int = 32,
@@ -23,10 +24,11 @@ class ReplayBuffer:
         buffer_size: int = 1000,
         use_reward: bool = True,
         name: str = "",
-        mode: str = "random",
-        max_iterations: int = 10,
+        mode: str = "uniform",
+        max_iterations: int = 300,
         shuffle: bool = True
     ):
+        self.cfg = cfg
         self.env = dataset.env
         self.dataset = dataset
         self.max_path_length = max_path_length
@@ -117,7 +119,7 @@ class ReplayBuffer:
         if shuffle:
             shuffle_indices = np.arange(len(keep_idx))
             np.random.shuffle(shuffle_indices)
-            keep_idx = keep_idx[shuffle_indices]
+            keep_idx = [keep_idx[i] for i in shuffle_indices]
         
         self.path_lengths = self.path_lengths[keep_idx]
         self.observations_segmented = self.observations_segmented[keep_idx]
@@ -130,8 +132,9 @@ class ReplayBuffer:
     def online_rollout(self,
                        model: MTM,
                        tokenizer_manager: TokenizerManager,
+                       sample_func, 
                        device: str,
-                       num_trajectories: int = 300,
+                       num_trajectories: int = 1,
                        percentage: float = 1.0,
                        clip_min: float = -0.1,
                        clip_max: float = 0.1,
@@ -139,49 +142,29 @@ class ReplayBuffer:
                        ):
         
         assert num_trajectories <= self.buffer_size
-        model.eval()
-        return_max = tokenizer_manager.tokenizers["returns"].stats.max
-        return_min = tokenizer_manager.tokenizers["returns"].stats.min
-        
-        return_value = return_min + (return_max - return_min) * percentage
-        return_to_go = float(return_value)
-        
-        zero_trajectory = {
-            "states": np.zeros(self.sequence_length, self.observation_dim),
-            "actions": np.zeros(self.sequence_length, self.action_dim),
-            "rewards": np.zeros(self.sequence_length, 1),
-            "returns": np.zeros(self.sequence_length, 1)
-        }
-        torch_rcbc_mask = create_rcbc_mask(self.sequence_length, device)
         new_trajectories = []
         
         for _ in range(num_trajectories):
             
-            current_trajectory = {"observations": np.zeros(self.max_path_length, self.observation_dim),
-                                  "actions": np.zeros(self.max_path_length, self.action_dim),
-                                  "rewards": np.zeros(self.max_path_length, 1),
-                                  "values": np.zeros(self.max_path_length, 1),
+            current_trajectory = {"observations": np.zeros((self.max_path_length, self.observation_dim), dtype=np.float32),
+                                  "actions": np.zeros((self.max_path_length, self.action_dim), dtype=np.float32),
+                                  "rewards": np.zeros((self.max_path_length, 1), dtype=np.float32),
+                                  "values": np.zeros((self.max_path_length, 1), dtype=np.float32),
                                   "total_return": 0,
                                   "path_length": 0}
-            torch_trajectory = {
-            k: torch.tensor(v, device=device)[None] for k, v in zero_trajectory.items()}
             
             observation, done = self.env.reset(), False
             timestep = 0
             while not done and timestep < self.max_path_length:
-                torch_trajectory["returns"][0, 0] = torch.tensor([return_to_go])
-                torch_trajectory["states"][0, 0] = torch.tensor(observation)
-                encode = tokenizer_manager.encode(torch_trajectory)
-                with torch.no_grad():
-                    pred = model(encode, torch_rcbc_mask)
-                action = tokenizer_manager.decode(pred)["action"][0, 0].cpu().numpy()
-                action = np.clip(action + action_noise_std * np.random.randn(self.action_dim), clip_min, clip_max)
-                new_observation, reward, done, _ = self.env.step(action)
                 current_trajectory["observations"][timestep] = observation
+                action, _ = sample_func(current_trajectory, percentage=1.0)
+                action = np.clip(action.cpu().numpy(), clip_min, clip_max)
+                new_observation, reward, done, _ = self.env.step(action)
                 current_trajectory["actions"][timestep] = action
                 current_trajectory["rewards"][timestep] = reward
                 observation = new_observation
                 timestep += 1
+                current_trajectory["path_length"] += 1
             
             for t in range(self.max_path_length):
                 V = (current_trajectory["rewards"][t + 1 :] * self.discounts[: -t - 1]).sum(
@@ -194,10 +177,11 @@ class ReplayBuffer:
                 current_trajectory["values"] = current_trajectory["values"] / divisor
             
             current_trajectory["total_return"] = current_trajectory["rewards"].sum()
-            current_trajectory["path_length"] = timestep
             
-            new_trajectories.append(current_trajectory)
-            self.update_buffer(new_trajectories)
+            if current_trajectory["path_length"] >= self.cfg.traj_length:
+                new_trajectories.append(current_trajectory)
+        
+        self.update_buffer(new_trajectories)
     
     
     
@@ -207,7 +191,9 @@ class ReplayBuffer:
         num_new_trajectories = len(new_trajectories)
         
         new_path_lengths = np.array([traj["path_length"] for traj in new_trajectories])
+        print("new_path_lengths", new_path_lengths)
         new_trajectory_returns = np.array([traj["total_return"] for traj in new_trajectories])
+        print("new_trajectory_returns", new_trajectory_returns)
         new_observations = np.stack([traj["observations"] for traj in new_trajectories], axis=0)
         new_actions = np.stack([traj["actions"] for traj in new_trajectories], axis=0)
         new_values = np.stack([traj["values"] for traj in new_trajectories], axis=0)
@@ -232,7 +218,7 @@ class ReplayBuffer:
         """
         if self._mode == "uniform":
             # Sample uniformly without considering trajectory return probabilities
-            sampled_indices = np.random.choice(len(self.observations_segmented), size=self.batch_size, replace=False)
+            sampled_indices = np.random.choice(len(self.observations_segmented), size=self.batch_size, replace=True)
 
         elif self._mode == "prob":
             # Sample indices based on trajectory return probabilities
@@ -259,7 +245,7 @@ class ReplayBuffer:
             'returns': np.stack(sampled_values)
         }
         
-        batch = {k: torch.tensor(v) for k, v in batch.items()}
+        batch = {k: torch.from_numpy(v).to(self.cfg.device) for k, v in batch.items()}
 
         return batch
     

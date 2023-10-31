@@ -721,7 +721,7 @@ def sample_action_bc3(
         # pass through tokenizer
 
         encoded_trajectories = tokenizer_manager.encode(torch_trajectories)
-        predicted = model(encoded_trajectories, torch_masks)
+        predicted, _ = model(encoded_trajectories, torch_masks)
         decode = tokenizer_manager.decode(predicted)
         value_return = decode["rewards"].sum(dim=1)
         sorted_values, sorted_indices = torch.sort(value_return, descending=True)
@@ -957,7 +957,7 @@ def sample_action_cem(
         # pass through tokenizer
 
         encoded_trajectories = tokenizer_manager.encode(torch_trajectories)
-        predicted = model(encoded_trajectories, torch_masks)
+        predicted, _ = model(encoded_trajectories, torch_masks)
         decode = tokenizer_manager.decode(predicted)
         value_return = decode["returns"].sum(dim=1)
         sorted_values, sorted_indices = torch.sort(value_return, descending=True)

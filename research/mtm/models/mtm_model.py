@@ -178,8 +178,8 @@ class MTMConfig:
     latent_dim: Optional[int] = None
     use_masked_loss: bool = False
 
-    def create(self, data_shape, traj_length):
-        return MTM(data_shape, traj_length, self)
+    def create(self, data_shape, traj_length, discrete_map):
+        return MTM(data_shape, traj_length, discrete_map, self)
 
 
 class MTM(nn.Module):
@@ -187,6 +187,7 @@ class MTM(nn.Module):
         self,
         data_shapes: Dict[str, Tuple[int, ...]],
         traj_length: int,
+        discrete_map: Dict[str, bool],
         config: MTMConfig,
     ):
         """Initialize a masked model.
@@ -264,13 +265,25 @@ class MTM(nn.Module):
         )
 
         self.output_head_dict = nn.ModuleDict()
+        
         for key, shape in data_shapes.items():
-            self.output_head_dict[key] = nn.Sequential(
+            
+            if discrete_map[key]:
+                self.output_head_dict[key] = nn.Sequential(
+                nn.LayerNorm(self.n_embd),
+                nn.Linear(self.n_embd, self.n_embd),
+                nn.GELU(),
+                nn.Linear(self.n_embd, shape[-1]),
+                nn.LogSoftmax(dim=-1)
+            )
+            else:
+                self.output_head_dict[key] = nn.Sequential(
                 nn.LayerNorm(self.n_embd),
                 nn.Linear(self.n_embd, self.n_embd),
                 nn.GELU(),
                 nn.Linear(self.n_embd, shape[-1]),
             )
+        
         pos_embed = get_1d_sincos_pos_embed_from_grid(self.n_embd, self.max_len)
         pe = torch.from_numpy(pos_embed).float()[None, :, None, :] / 2.0
         self.register_buffer("pos_embed", pe)
@@ -312,7 +325,7 @@ class MTM(nn.Module):
                     mean = target.mean(dim=-1, keepdim=True)
                     var = target.var(dim=-1, keepdim=True)
                     target_s = (target - mean) / (var + 1.0e-6) ** 0.5
-
+                
                 raw_loss = nn.MSELoss(reduction="none")(pred, target)
 
             # raw_loss shape = [batch_size, T, P, 1]
@@ -341,6 +354,7 @@ class MTM(nn.Module):
             loss = torch.sum(torch.stack(list(losses.values())))
         else:
             loss = torch.sum(torch.stack([losses[key] for key in loss_keys]))
+        
         return loss, losses, masked_losses, masked_c_losses
 
     def _index(self, x, use_mask):
@@ -522,6 +536,7 @@ class MTM(nn.Module):
             p = self.data_shapes[k][0]
             extracted_trajectories[k] = output_head(traj_segment.reshape(b, -1, p, f))
             pos += t_p
+            
         return extracted_trajectories
 
     def mask_git_forward(self, trajectories, masks, temperature=1.0, ratio=1.0):
@@ -534,7 +549,8 @@ class MTM(nn.Module):
         trajectories_copy = {k: torch.clone(v) for k, v in trajectories.items()}
 
         if ratio == 1.0:
-            return self(trajectories_copy, masks_copy)
+            trajectory_predictions = self(trajectories_copy, masks_copy)
+            return trajectory_predictions
 
         num_choose = int(
             ratio
@@ -552,7 +568,7 @@ class MTM(nn.Module):
         assert trajectories_copy["states"].shape[0] == 1
 
         while not masks_filled(masks_copy):
-            traj_predictions = self(trajectories_copy, masks_copy)
+            traj_predictions, _ = self(trajectories_copy, masks_copy)
             # sample from the logits
             for k, traj_logits in traj_predictions.items():
                 B, L, I, _ = traj_logits.shape

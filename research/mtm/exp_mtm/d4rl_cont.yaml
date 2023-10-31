@@ -2,13 +2,16 @@
 defaults:
     - override /datasets: d4rl
 
-# tokenizers:
-#     states:
-#       _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
-#     actions:
-#       _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
-#     returns:
-#       _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+tokenizers:
+    states:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    actions:
+      _target_: research.mtm.tokenizers.continuous_binned.ContinuousBinnedTokenizer.create
+    returns:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    rewards:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+
 
 
 dataset:
@@ -17,5 +20,5 @@ dataset:
     train_val_split: 0.95
 
 wandb:
-    project: "d4rl"
+    project: "pretrain"
     resume: allow

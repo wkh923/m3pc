@@ -1,24 +1,25 @@
-pretrain_model_path: /home/unitree/mtm/outputs/mtm_mae/2023-09-03_18-48-03/model_140010.pt
-pretrain_critic_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-expert-v2critic2.pt
-
+pretrain_model_path: /home/unitree/mtm/outputs/mtm_mae/2023-10-23_15-29-02/model_140010.pt
+pretrain_critic1_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic1.pt
+pretrain_critic2_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic2.pt
+pretrain_value_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2value.pt
 pretrain_args:
-    env_name: "Hopper-v2"
+    env_name: hopper-medium-v2
     traj_length: 8
 
 pretrain_dataset:
     _target_: research.mtm.datasets.d4rl_ds.get_datasets
     seq_steps: ???
-    env_name: hopper-expert-v2
+    env_name: hopper-medium-v2
     use_reward: true
     seed: 0
     discount: 1.5
-    train_val_split: 0.9999
+    train_val_split: 0.95
 
 tokenizers:
     states:
       _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
     actions:
-      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+      _target_: research.mtm.tokenizers.continuous_binned.ContinuousBinnedTokenizer.create
     returns:
       _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
     rewards:
@@ -40,32 +41,40 @@ finetune_args:
     _target_: research.finetune.finetune.RunConfig
     discount: 0.99
     seed: 0
-    batch_size: 256
-    warmup_steps: 0
-    num_train_steps: 100000
-    learning_rate: 5e-4
+    batch_size: 1024
+    warmup_steps: 1000
+    num_train_steps: 90000
+    learning_rate: 1e-5
+    critic_lr: 1e-5
+    v_lr: 1e-5
     weight_decay: 5e-3
     device: cuda
     use_masked_loss: False
-    loss_weight: {"actions":  1.0,"states": 1.0, "returns": 1.0, "rewards": 1.0, "policy": 1.0}
+    loss_weight: {"actions":  1.0,"states": 1.0, "returns": 1.0, "rewards": 1.0}
     
-    #debug
-    print_every: 1
-    log_every: 1
-    eval_every: 1
-    save_every: 1
+    #train
+    print_every: 50
+    log_every: 100
+    eval_every: 2000
+    save_every: 2000
+    
+    # #debug
+    # print_every: 1
+    # log_every: 1
+    # eval_every: 1
+    # save_every: 1
     
     #cem 
-    policy_std: 0.2
-    n_iter: 5
-    n_rsamples: 900
-    n_policy_samples: 100
-    top_k: 100
+    n_iter: 3
+    n_rsamples: 16
+    n_policy_samples: 64
+    top_k: 32
+    temperature: 0.5
 
     #replay buffer
     buffer_size: 1000
     pretrain_discount: 1.5
-    num_updates_per_online_rollout: 300
+    num_updates_per_online_rollout: 100
     clip_min: -1.0
     clip_max: 1.0
     action_noise_std: 0.2
@@ -77,4 +86,9 @@ finetune_args:
 wandb:
     project: d4rl_finetune
     entity: wkh923
-    resume: allow
+    resume: null
+
+hydra:
+    job:
+        name: finetune
+        chdir: True

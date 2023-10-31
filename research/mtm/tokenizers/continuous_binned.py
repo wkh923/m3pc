@@ -13,16 +13,16 @@ from research.mtm.tokenizers.base import Tokenizer
 class ContinuousBinnedTokenizer(Tokenizer):
     """Dummy tokenizer for trajectories that are already discrete."""
 
-    def __init__(self, values: List[float]):
+    def __init__(self, num_bins, start, end):
         super().__init__()
-        self.values = torch.tensor(values)[None, None, None, :]
+        self.values = torch.linspace(start, end, steps=num_bins)[None, None, None, :]
 
     @classmethod
     def create(
-        cls, key: str, train_dataset: Dataset, values: int
+        cls, key: str, train_dataset: Dataset, num_bins: int = 64, start: float = -1.0, end: float = 1.0
     ) -> "DiscreteIdentity":
         # add some slack
-        return cls(values)
+        return cls(num_bins, start, end)
 
     @property
     def discrete(self) -> bool:

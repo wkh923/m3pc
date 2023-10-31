@@ -18,7 +18,7 @@ import torch.nn.parallel
 from torch.utils.data.dataloader import DataLoader
 from omegaconf import DictConfig, OmegaConf
 
-
+from research.jaxrl.utils import make_env
 from research.logger import WandBLogger, WandBLoggerConfig, logger, stopwatch
 from research.mtm.datasets.base import DatasetProtocol
 from research.mtm.datasets.sequence_dataset import Trajectory
@@ -74,6 +74,11 @@ class RunConfig:
 
     learning_rate: float = 1e-3
     """Learning rate."""
+    
+    critic_lr: float = 5e-4
+    
+    v_lr: float = 5e-4
+    
 
     weight_decay: float = 1e-5
     """Weight decay."""
@@ -89,9 +94,6 @@ class RunConfig:
     
     discount: float = 0.99
     """Discount factor"""
-    
-    policy_std: float = 1.0
-    """Policy noise std when planning with CEM"""
     
     num_updates_per_online_rollout: int = 300
     
@@ -110,13 +112,14 @@ class RunConfig:
     use_masked_loss: bool = True
     
     loss_weight: Dict[str, float] = field(default_factory=lambda: {
-        "actions": 1.0, "states": 1.0, "returns": 1.0,
-        "rewards": 1.0, "policy": 1.0
-    })
+        "actions": 1.0, "states": 1.0, "returns": 1.0, "rewards": 1.0})
+    
     
     clip_min: float = -1.0
     
     clip_max: float = 1.0
+    
+    temperature: float = 0.5
     
     action_noise_std: float = 0.2
     
@@ -130,12 +133,14 @@ def main(hydra_cfg):
     torch.cuda.set_device(dp.local_rank)
     
     pretrain_model_path = hydra_cfg.pretrain_model_path
-    pretrain_critic_path = hydra_cfg.pretrain_critic_path
+    pretrain_critic1_path = hydra_cfg.pretrain_critic1_path
+    pretrain_critic2_path = hydra_cfg.pretrain_critic2_path
+    pretrain_value_path = hydra_cfg.pretrain_value_path
     cfg: RunConfig = hydra.utils.instantiate(hydra_cfg.finetune_args)
     model_config = hydra.utils.instantiate(hydra_cfg.model_config)
     cfg.traj_length = hydra_cfg.pretrain_args.traj_length
     cfg.env_name = hydra_cfg.pretrain_args.env_name
-    env = gym.make(cfg.env_name)
+    
     
     
     set_seed_everywhere(cfg.seed)
@@ -152,6 +157,7 @@ def main(hydra_cfg):
     train_dataset, val_dataset, train_raw_dataset = hydra.utils.call(
         hydra_cfg.pretrain_dataset, seq_steps=cfg.traj_length
     )
+    env = make_env(cfg.env_name, cfg.seed)
     val_sampler = torch.utils.data.SequentialSampler(val_dataset)
     val_loader = DataLoader(
             val_dataset,
@@ -172,11 +178,10 @@ def main(hydra_cfg):
         discrete_map[k] = v.discrete
     logger.info(f"Tokenizers: {tokenizers}")
     
-    buffer = ReplayBuffer(train_raw_dataset, cfg.pretrain_discount, cfg.traj_length, batch_size=cfg.batch_size, 
-                          buffer_size=cfg.buffer_size, name=cfg.env_name, mode="prob")
+    buffer = ReplayBuffer(cfg, train_raw_dataset, cfg.pretrain_discount, cfg.traj_length, batch_size=cfg.batch_size, 
+                          buffer_size=cfg.buffer_size, name=cfg.env_name, mode="uniform", max_iterations=cfg.num_updates_per_online_rollout)
     dataloader = iter(buffer)
     batch_example = next(dataloader)
-    batch_example = {k: v.to(cfg.device, non_blocking=True) for k, v in batch_example.items()}
     
     data_shapes = {}
     for k, v in tokenizer_manager.encode(batch_example).items():
@@ -185,7 +190,8 @@ def main(hydra_cfg):
     print(f"Data shapes: {data_shapes}")
     logger.info(f"Data shapes: {data_shapes}")
     
-    learner = Learner(cfg, env, data_shapes, model_config, pretrain_model_path, pretrain_critic_path, tokenizer_manager, discrete_map)
+    learner = Learner(cfg, env, data_shapes, model_config, pretrain_model_path, pretrain_critic1_path, pretrain_critic2_path, 
+                      pretrain_value_path, tokenizer_manager, discrete_map)
     
     # create a wandb logger and log params of interest
     wandb_cfg_log_dict = OmegaConf.to_container(hydra_cfg)
@@ -219,22 +225,40 @@ def main(hydra_cfg):
         ckpt_mtm_path = get_ckpt_path_from_folder(
             os.getcwd(), "mtm"
         )
-        ckpt_critic_path = get_ckpt_path_from_folder(
-            os.getcwd(), "critic"
+        ckpt_critic1_path = get_ckpt_path_from_folder(
+            os.getcwd(), "critic1"
         )
-        if ckpt_mtm_path is not None and ckpt_critic_path is not None:
+        ckpt_critic2_path = get_ckpt_path_from_folder(
+            os.getcwd(), "critic2"
+        )
+        ckpt_value_path = get_ckpt_path_from_folder(
+            os.getcwd(), "value"
+        )
+        if ckpt_mtm_path is not None:
             ckpt = torch.load(ckpt_mtm_path, map_location=cfg.device)
             logger.info(f"Resuming from checkpoint: {ckpt_mtm_path}")
             step_mtm = ckpt["step"]
             learner.mtm.load_state_dict(ckpt["model"])
             learner.mtm_optimizer.load_state_dict(ckpt["optimizer"])
     
-            ckpt = torch.load(ckpt_critic_path, map_location=cfg.device)
-            logger.info(f"Resuming from checkpoint: {ckpt_critic_path}")
+            ckpt = torch.load(ckpt_critic1_path, map_location=cfg.device)
+            logger.info(f"Resuming from checkpoint: {ckpt_critic1_path}")
             step_critic = ckpt["step"]
-            learner.critic.load_state_dict(ckpt["model"])
-            learner.critic_optimizer.load_state_dict(ckpt["optimizer"])
-            learner.critic_target.load_state_dict(ckpt["model"])
+            learner.critic1.load_state_dict(ckpt["model"])
+            learner.critic1_optimizer.load_state_dict(ckpt["optimizer"])
+            learner.critic1_target.load_state_dict(ckpt["model"])
+            
+            ckpt = torch.load(ckpt_critic2_path, map_location=cfg.device)
+            logger.info(f"Resuming from checkpoint: {ckpt_critic2_path}")
+            learner.critic2.load_state_dict(ckpt["model"])
+            learner.critic2_optimizer.load_state_dict(ckpt["optimizer"])
+            learner.critic2_target.load_state_dict(ckpt["model"])
+            
+            ckpt = torch.load(ckpt_value_path, map_location=cfg.device)
+            logger.info(f"Resuming from checkpoint: {ckpt_value_path}")
+            step_critic = ckpt["step"]
+            learner.value.load_state_dict(ckpt["model"])
+            learner.value_optimizer.load_state_dict(ckpt["optimizer"])
             
             step = max(step_mtm, step_critic)
         else:
@@ -251,16 +275,18 @@ def main(hydra_cfg):
         try:
             batch = next(dataloader)
         except StopIteration:
-            buffer.online_rollout(learner.mtm, tokenizer_manager, cfg.device, num_trajectories=cfg.num_updates_per_online_rollout, percentage=1, 
+            logger.info(f"Rollout a new trajectory")
+            buffer.online_rollout(learner.mtm, tokenizer_manager, learner.action_sample, cfg.device, num_trajectories=1, percentage=1, 
                                   clip_min=cfg.clip_min, clip_max=cfg.clip_max, action_noise_std=cfg.action_noise_std)
             dataloader = iter(buffer)
             batch = next(dataloader)    
         
-        batch = {k: v.to(cfg.device, non_blocking=True) for k, v in batch.items()}
         mtm_log = learner.mtm_update(batch)
-        critic_log = learner.critic_update(batch)
+        # critic_log = learner.critic_update(batch)
+        value_log = learner.value_update(batch)
         log_dict.update(mtm_log)
-        log_dict.update(critic_log)
+        # log_dict.update(critic_log)
+        log_dict.update(value_log)
         log_dict["time/train_step"] = time.time() - start_time
         
         learner.critic_target_soft_update()
@@ -283,25 +309,46 @@ def main(hydra_cfg):
             )
             torch.save(
                 {
-                    "model": learner.critic.state_dict(),
-                    "optimizer": learner.critic_optimizer.state_dict(),
+                    "model": learner.critic1.state_dict(),
+                    "optimizer": learner.critic1_optimizer.state_dict(),
                     "step": step,
                 },
-                f"critic_{step}.pt"
+                f"critic1_{step}.pt"
             )
+            torch.save(
+                {
+                    "model": learner.critic2.state_dict(),
+                    "optimizer": learner.critic2_optimizer.state_dict(),
+                    "step": step,
+                },
+                f"critic2_{step}.pt"
+            )
+            torch.save(
+                {
+                    "model": learner.value.state_dict(),
+                    "optimizer": learner.value_optimizer.state_dict(),
+                    "step": step,
+                },
+                f"value_{step}.pt"
+            )
+            
             try:
                 if step > 3 * cfg.save_every:
                     remove_step = step - 3 * cfg.save_every
                     if (remove_step // cfg.save_every) % 10 != 0:
                         os.remove(f"mtm_{remove_step}.pt")
-                        os.remove(f"critic_{remove_step}.pt")
+                        os.remove(f"critic1_{remove_step}.pt")
+                        os.remove(f"critic2_{remove_step}.pt")
+                        os.remove(f"value_{remove_step}.pt")
             except Exception as e:
                 logger.error(f"Failed to remove model file! {e}")
             
         if step % cfg.eval_every == 0:
             start_time = time.time()
             learner.mtm.eval()
-            learner.critic.eval()
+            learner.critic1.eval()
+            learner.critic2.eval()
+            learner.value.eval()
             
             val_batch = next(iter(val_loader))
             val_batch = {
@@ -326,8 +373,11 @@ def main(hydra_cfg):
             
             log_dict.update(val_dict)
             learner.mtm.train()
-            learner.critic.train()
-            log_dict["time/eval_step_time"] = time.time() - start_time
+            learner.critic1.train()
+            learner.critic2.train()
+            learner.value.train()
+            val_dict["time/eval_step_time"] = time.time() - start_time
+            wandb_logger.log(val_dict, step=step)
         
         log_dict["time/iteration_step_time"] = time.time() - B
         
@@ -348,13 +398,30 @@ def main(hydra_cfg):
                 f"mtm_{step}.pt"
             )
     torch.save(
+                {
+                    "model": learner.critic1.state_dict(),
+                    "optimizer": learner.critic1_optimizer.state_dict(),
+                    "step": step,
+                },
+                f"critic1_{step}.pt"
+            )
+    torch.save(
         {
-            "model": learner.critic.state_dict(),
-            "optimizer": learner.critic_optimizer.state_dict(),
+            "model": learner.critic2.state_dict(),
+            "optimizer": learner.critic2_optimizer.state_dict(),
             "step": step,
         },
-        f"critic_{step}.pt"
+        f"critic2_{step}.pt"
     )
+    torch.save(
+        {
+            "model": learner.value.state_dict(),
+            "optimizer": learner.value_optimizer.state_dict(),
+            "step": step,
+        },
+        f"value_{step}.pt"
+    )
+            
     
     
 
@@ -367,3 +434,4 @@ def configure_jobs(hydra_data: DictConfig) -> None:
 
 if __name__ == "__main__":
     configure_jobs()
+    

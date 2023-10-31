@@ -829,7 +829,7 @@ def _main(hydra_cfg):
 
     # create the model
     model_config = hydra.utils.instantiate(hydra_cfg.model_config)
-    model = model_config.create(data_shapes, cfg.traj_length)
+    model = model_config.create(data_shapes, cfg.traj_length, discrete_map)
     model.to(cfg.device)
     model.train()
     if distributed:
