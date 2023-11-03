@@ -104,6 +104,7 @@ class ReplayBuffer:
         self.rewards_segmented = self.rewards_segmented[sorted_index]
         self.values_segmented = self.values_segmented[sorted_index]
         self.trajectory_returns = self.trajectory_returns[sorted_index]
+       
         
         keep_idx = []
         traj_count = 0

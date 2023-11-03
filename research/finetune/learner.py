@@ -38,15 +38,15 @@ class Learner(object):
         self.mtm.load_state_dict(torch.load(pretrain_model_path)["model"])
         self.mtm.to(cfg.device)
         self.critic1 = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.critic1.load_state_dict(torch.load(pretrain_critic1_path))
+        self.critic1.load_state_dict(torch.load(pretrain_critic1_path)["model"])
         self.critic2 = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.critic2.load_state_dict(torch.load(pretrain_critic2_path))
+        self.critic2.load_state_dict(torch.load(pretrain_critic2_path)["model"])
         self.critic1_target = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path))
+        self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path)["model"])
         self.critic2_target = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path))
+        self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path)["model"])
         self.value = Value(env.observation_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.value.load_state_dict(torch.load(pretrain_value_path))
+        self.value.load_state_dict(torch.load(pretrain_value_path)["model"])
         self.tokenizer_manager = tokenizer_manager
         self.discrete_map = discrete_map
         self.mtm_optimizer = MTM.configure_optimizers(
@@ -90,18 +90,17 @@ class Learner(object):
         with torch.no_grad():
             action_values = self.tokenizer_manager.tokenizers["actions"].values[0,0,0,:]
             encode = self.tokenizer_manager.encode(trajectory)
-            encode_batch = {k: v.repeat(self.cfg.n_policy_samples + self.cfg.n_rsamples + 1, 1, 1, 1) for k, v in encode.items()}
+            encode_batch = {k: v.repeat(self.cfg.n_policy_samples + self.cfg.n_rsamples, 1, 1, 1) for k, v in encode.items()}
             torch_rcbc_mask = create_rcbc_mask(traj_length=self.cfg.traj_length, device=self.cfg.device, pos=seg_idx)
             torch_fd_mask = create_fd_mask(traj_length=self.cfg.traj_length, device=self.cfg.device, pos=seg_idx)
             policy_pred = self.mtm(encode_batch, torch_rcbc_mask)["actions"][0, seg_idx:, :, :] #(traj_length-seg_idx+1, action_dim, num_bins)
             policy_dist = D.categorical.Categorical(logits=policy_pred)
-            cem_dist = D.categorical.Categorical(logits=torch.ones_like(policy_pred))
+            cem_dist = D.categorical.Categorical(logits=policy_pred)
             for it in range (self.cfg.n_iter):
                 #Generate action samples
-                action_expert_samples = torch.max(policy_pred, dim=-1)[1]
                 action_policy_samples = policy_dist.sample((self.cfg.n_policy_samples,))
                 action_rsamples = cem_dist.sample((self.cfg.n_rsamples,))
-                action_samples = torch.cat([action_rsamples, action_policy_samples, action_expert_samples.unsqueeze(0)], dim=0)
+                action_samples = torch.cat([action_rsamples, action_policy_samples], dim=0)
                 encode_action_samples = F.one_hot(action_samples, action_values.shape[0])
                  
                  
@@ -116,30 +115,20 @@ class Learner(object):
                 sorted_return, sorted_indices = torch.sort(expected_return, descending=True)
                 top_k_actions = action_samples[sorted_indices[:self.cfg.top_k]]
                 encode_top_k_actions = F.one_hot(top_k_actions, action_values.shape[0]) # (k, traj_length-seg_idx+1, action_dim, num_bins)
-                # print("encode_top_k_actions", encode_top_k_actions[0])
                 sorted_return = sorted_return[:self.cfg.top_k]
                 max_return = sorted_return.max(0)[0]
                 score = torch.exp(self.cfg.temperature * (sorted_return - max_return))
-                # print("score", score)
                  
                 cem_logits = torch.log((score[:, None, None, None] * encode_top_k_actions).sum(dim=0)) #(traj_length-seg_idx+1, action_dim, num_bins)
+                
                 cem_dist = D.categorical.Categorical(logits=cem_logits)
             
             top_k_states = decode["states"][sorted_indices[:self.cfg.top_k], -1]
-            # print("top_k_states:",top_k_states)
-            # print("sorted_return", sorted_return)
-            
-            # print("action_samples", action_values[top_k_actions[:, 0]], "score", score[:])
-            
-            # current_state = trajectory["states"][0, seg_idx]
-            # print("policy_pred", policy_pred[0], "cem_logits", cem_logits[0])
+            print("policy_pred", policy_pred[0], "cem_logits", cem_logits[0])
             action_sample = action_values[cem_dist.sample()[0]]
-            action_policy_sample = action_values[policy_dist.sample()[0]]
             action_policy = action_values[torch.max(cem_logits, dim=-1)[1][0]]
             action_expert = action_values[torch.max(policy_pred, dim=-1)[1][0]]
-            # print("action_expert", action_expert)
             
-            # print("current_state", current_state, "action_sample", action_sample, "action_policy", action_policy, "action_expert", action_expert)
             
         return action_sample, action_expert
     
@@ -179,7 +168,7 @@ class Learner(object):
                 raw_loss = nn.MSELoss(reduction="none")(pred, target)
             
             # raw_loss shape = [batch_size, T, P, 1]
-            loss = raw_loss.mean(dim=(2, 3)).mean()
+            loss = raw_loss.sum(dim=(2, 3)).mean()
             masked_c_loss = (
                 (raw_loss * mask[None, :, :, None]).sum(dim=(1, 2, 3)) / mask.sum()
             ).mean()
@@ -194,6 +183,7 @@ class Learner(object):
                 losses[key] = loss
             masked_c_losses[key] = masked_c_loss
             masked_losses[key] = masked_loss
+            
         
         if self.cfg.loss_weight is None:
             loss = torch.sum(torch.stack(list(losses.values())))
@@ -341,6 +331,7 @@ class Learner(object):
         
         return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
         return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
+        
         
         return_value = return_min + (return_max - return_min) * percentage
         return_to_go = float(return_value)

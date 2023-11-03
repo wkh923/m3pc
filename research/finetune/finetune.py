@@ -282,10 +282,10 @@ def main(hydra_cfg):
             batch = next(dataloader)    
         
         mtm_log = learner.mtm_update(batch)
-        # critic_log = learner.critic_update(batch)
+        critic_log = learner.critic_update(batch)
         value_log = learner.value_update(batch)
         log_dict.update(mtm_log)
-        # log_dict.update(critic_log)
+        log_dict.update(critic_log)
         log_dict.update(value_log)
         log_dict["time/train_step"] = time.time() - start_time
         

@@ -1,7 +1,7 @@
-pretrain_model_path: /home/unitree/mtm/outputs/mtm_mae/2023-10-23_15-29-02/model_140010.pt
-pretrain_critic1_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic1.pt
-pretrain_critic2_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic2.pt
-pretrain_value_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2value.pt
+pretrain_model_path: /home/unitree/mtm/outputs/2023-11-02/20-55-57/mtm_18000.pt
+pretrain_critic1_path: /home/unitree/mtm/outputs/2023-11-02/20-55-57/critic1_18000.pt
+pretrain_critic2_path: /home/unitree/mtm/outputs/2023-11-02/20-55-57/critic2_18000.pt
+pretrain_value_path: /home/unitree/mtm/outputs/2023-11-02/20-55-57/value_18000.pt
 pretrain_args:
     env_name: hopper-medium-v2
     traj_length: 8
@@ -45,12 +45,12 @@ finetune_args:
     warmup_steps: 1000
     num_train_steps: 90000
     learning_rate: 1e-5
-    critic_lr: 1e-5
-    v_lr: 1e-5
+    critic_lr: 3e-4
+    v_lr: 3e-4
     weight_decay: 5e-3
     device: cuda
     use_masked_loss: False
-    loss_weight: {"actions":  1.0,"states": 1.0, "returns": 1.0, "rewards": 1.0}
+    loss_weight: {"actions":  1.0, "states": 1.0, "returns": 1.0, "rewards": 1.0}
     
     #train
     print_every: 50
@@ -66,9 +66,9 @@ finetune_args:
     
     #cem 
     n_iter: 3
-    n_rsamples: 16
-    n_policy_samples: 64
-    top_k: 32
+    n_rsamples: 512
+    n_policy_samples: 512
+    top_k: 128
     temperature: 0.5
 
     #replay buffer
