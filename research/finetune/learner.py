@@ -38,15 +38,15 @@ class Learner(object):
         self.mtm.load_state_dict(torch.load(pretrain_model_path)["model"])
         self.mtm.to(cfg.device)
         self.critic1 = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.critic1.load_state_dict(torch.load(pretrain_critic1_path)["model"])
+        self.critic1.load_state_dict(torch.load(pretrain_critic1_path))
         self.critic2 = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.critic2.load_state_dict(torch.load(pretrain_critic2_path)["model"])
+        self.critic2.load_state_dict(torch.load(pretrain_critic2_path))
         self.critic1_target = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path)["model"])
+        self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path))
         self.critic2_target = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path)["model"])
+        self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path))
         self.value = Value(env.observation_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.value.load_state_dict(torch.load(pretrain_value_path)["model"])
+        self.value.load_state_dict(torch.load(pretrain_value_path))
         self.tokenizer_manager = tokenizer_manager
         self.discrete_map = discrete_map
         self.mtm_optimizer = MTM.configure_optimizers(
@@ -118,15 +118,12 @@ class Learner(object):
                 sorted_return = sorted_return[:self.cfg.top_k]
                 max_return = sorted_return.max(0)[0]
                 score = torch.exp(self.cfg.temperature * (sorted_return - max_return))
-                 
                 cem_logits = torch.log((score[:, None, None, None] * encode_top_k_actions).sum(dim=0)) #(traj_length-seg_idx+1, action_dim, num_bins)
-                
                 cem_dist = D.categorical.Categorical(logits=cem_logits)
             
             top_k_states = decode["states"][sorted_indices[:self.cfg.top_k], -1]
-            print("policy_pred", policy_pred[0], "cem_logits", cem_logits[0])
+            # print("policy_pred", policy_pred[0], "cem_logits", cem_logits[0])
             action_sample = action_values[cem_dist.sample()[0]]
-            action_policy = action_values[torch.max(cem_logits, dim=-1)[1][0]]
             action_expert = action_values[torch.max(policy_pred, dim=-1)[1][0]]
             
             
@@ -377,7 +374,7 @@ class Learner(object):
             timestep = 0
             while not done and timestep < 1000:
                 current_trajectory["observations"][timestep] = observation
-                _, action = self.action_sample(current_trajectory, percentage=1.0, p=[0,0,0,1,0,0,0,0])
+                _, action = self.action_sample(current_trajectory, percentage=1.5, p=[0,0,0,0,0,0,0,1])
                 action = np.clip(action.cpu().numpy(), -1, 1)
                 new_observation, reward, done, info = self.env.step(action)
                 current_trajectory["actions"][timestep] = action
