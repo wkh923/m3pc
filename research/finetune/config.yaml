@@ -40,7 +40,7 @@ model_config:
 finetune_args: 
     _target_: research.finetune.finetune.RunConfig
     discount: 0.99
-    seed: 0
+    seed: 1000
     batch_size: 1024
     warmup_steps: 1000
     num_train_steps: 90000
@@ -50,7 +50,7 @@ finetune_args:
     weight_decay: 5e-3
     device: cuda
     use_masked_loss: False
-    loss_weight: {"actions":  1.0, "states": 1.0, "returns": 1.0, "rewards": 0.5}
+    loss_weight: {"actions":  1.0, "states": 1.0, "returns": 1.0, "rewards": 1.0}
     
     #train
     print_every: 50

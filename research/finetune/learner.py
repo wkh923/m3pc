@@ -374,7 +374,7 @@ class Learner(object):
             timestep = 0
             while not done and timestep < 1000:
                 current_trajectory["observations"][timestep] = observation
-                _, action = self.action_sample(current_trajectory, percentage=1.5, p=[0,0,0,0,0,0,0,1])
+                _, action = self.action_sample(current_trajectory, percentage=1.0, p=[0,0,0,0,0,0,0,1])
                 action = np.clip(action.cpu().numpy(), -1, 1)
                 new_observation, reward, done, info = self.env.step(action)
                 current_trajectory["actions"][timestep] = action
