@@ -158,7 +158,7 @@ class ReplayBuffer:
             timestep = 0
             while not done and timestep < self.max_path_length:
                 current_trajectory["observations"][timestep] = observation
-                action, _ = sample_func(current_trajectory, percentage=1.0)
+                action, _ = sample_func(current_trajectory, percentage=0.8)
                 action = np.clip(action.cpu().numpy(), clip_min, clip_max)
                 new_observation, reward, done, _ = self.env.step(action)
                 current_trajectory["actions"][timestep] = action

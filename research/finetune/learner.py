@@ -85,7 +85,7 @@ class Learner(object):
                                                  weight_decay = self.cfg.weight_decay,
                                                  betas=(0.9, 0.999))
     
-    def compute_target_cem_action(self, trajectory: Dict[str, torch.Tensor], seg_idx: int):
+    def compute_target_cem_action(self, trajectory: Dict[str, torch.Tensor], seg_idx: int, cem):
         
         with torch.no_grad():
             action_values = self.tokenizer_manager.tokenizers["actions"].values[0,0,0,:]
@@ -96,35 +96,36 @@ class Learner(object):
             policy_pred = self.mtm(encode_batch, torch_rcbc_mask)["actions"][0, seg_idx:, :, :] #(traj_length-seg_idx+1, action_dim, num_bins)
             policy_dist = D.categorical.Categorical(logits=policy_pred)
             cem_dist = D.categorical.Categorical(logits=policy_pred)
-            for it in range (self.cfg.n_iter):
-                #Generate action samples
-                action_policy_samples = policy_dist.sample((self.cfg.n_policy_samples,))
-                action_rsamples = cem_dist.sample((self.cfg.n_rsamples,))
-                action_samples = torch.cat([action_rsamples, action_policy_samples], dim=0)
-                encode_action_samples = F.one_hot(action_samples, action_values.shape[0])
-                 
-                 
-                #Use the model to predict future sequence
-                encode_batch["actions"][:, seg_idx:, :, :] = encode_action_samples
-                fd_pred = self.mtm(encode_batch, torch_fd_mask)
-                decode = self.tokenizer_manager.decode(fd_pred)
-                future_rewards = decode["rewards"][:, seg_idx:-1, :].squeeze(-1) #(num_samples, traj_length - seg_idx)
-                discounts = torch.tensor([self.cfg.discount ** i for i in range(future_rewards.shape[1])], device=self.cfg.device)[None, :]
-                expected_return = (future_rewards * discounts).sum(dim=1) + (self.value(decode["states"][:, -1, :]) * (self.cfg.discount ** future_rewards.shape[1])).squeeze(-1)
-                
-                sorted_return, sorted_indices = torch.sort(expected_return, descending=True)
-                top_k_actions = action_samples[sorted_indices[:self.cfg.top_k]]
-                encode_top_k_actions = F.one_hot(top_k_actions, action_values.shape[0]) # (k, traj_length-seg_idx+1, action_dim, num_bins)
-                sorted_return = sorted_return[:self.cfg.top_k]
-                max_return = sorted_return.max(0)[0]
-                score = torch.exp(self.cfg.temperature * (sorted_return - max_return))
-                cem_logits = torch.log((score[:, None, None, None] * encode_top_k_actions).sum(dim=0)) #(traj_length-seg_idx+1, action_dim, num_bins)
-                cem_dist = D.categorical.Categorical(logits=cem_logits)
+            if cem:
+                for it in range (self.cfg.n_iter):
+                    #Generate action samples
+                    action_policy_samples = policy_dist.sample((self.cfg.n_policy_samples,))
+                    action_rsamples = cem_dist.sample((self.cfg.n_rsamples,))
+                    action_samples = torch.cat([action_rsamples, action_policy_samples], dim=0)
+                    encode_action_samples = F.one_hot(action_samples, action_values.shape[0])
+                    
+                    
+                    #Use the model to predict future sequence
+                    encode_batch["actions"][:, seg_idx:, :, :] = encode_action_samples
+                    fd_pred = self.mtm(encode_batch, torch_fd_mask)
+                    decode = self.tokenizer_manager.decode(fd_pred)
+                    future_rewards = decode["rewards"][:, seg_idx:-1, :].squeeze(-1) #(num_samples, traj_length - seg_idx)
+                    discounts = torch.tensor([self.cfg.discount ** i for i in range(future_rewards.shape[1])], device=self.cfg.device)[None, :]
+                    expected_return = (future_rewards * discounts).sum(dim=1) + (self.value(decode["states"][:, -1, :]) * (self.cfg.discount ** future_rewards.shape[1])).squeeze(-1)
+                    
+                    sorted_return, sorted_indices = torch.sort(expected_return, descending=True)
+                    top_k_actions = action_samples[sorted_indices[:self.cfg.top_k]]
+                    encode_top_k_actions = F.one_hot(top_k_actions, action_values.shape[0]) # (k, traj_length-seg_idx+1, action_dim, num_bins)
+                    sorted_return = sorted_return[:self.cfg.top_k]
+                    max_return = sorted_return.max(0)[0]
+                    score = torch.exp(self.cfg.temperature * (sorted_return - max_return))
+                    cem_logits = torch.log((score[:, None, None, None] * encode_top_k_actions).sum(dim=0)) #(traj_length-seg_idx+1, action_dim, num_bins)
+                    cem_dist = D.categorical.Categorical(logits=cem_logits)
             
-            top_k_states = decode["states"][sorted_indices[:self.cfg.top_k], -1]
-            # print("policy_pred", policy_pred[0], "cem_logits", cem_logits[0])
+            # print("P:", policy_pred[0], "C:", cem_logits[0])
             action_sample = action_values[cem_dist.sample()[0]]
             action_expert = action_values[torch.max(policy_pred, dim=-1)[1][0]]
+            # print(torch.abs(action_sample-action_expert))
             
             
         return action_sample, action_expert
@@ -297,8 +298,7 @@ class Learner(object):
             target_param.data.copy_(self.cfg.tau * param.data + (1.0 - self.cfg.tau) * target_param.data)
     
     
-    def action_sample(self, sequence_history, percentage=1.0, p=[0,0.1, 0.2, 0.4, 0.2, 0.1, 0, 0]):
-        
+    def action_sample(self, sequence_history, percentage=1.0, p=[0,0.1,0.2,0.4,0.2,0.1,0,0], cem=True):
         
         end_idx = sequence_history["path_length"]
         if sequence_history["path_length"] < self.cfg.traj_length:
@@ -335,7 +335,7 @@ class Learner(object):
         returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
         torch_zero_trajectories["returns"] = torch.from_numpy(returns).to(self.cfg.device)
         
-        sample, policy = self.compute_target_cem_action(torch_zero_trajectories, sep_idx)
+        sample, policy = self.compute_target_cem_action(torch_zero_trajectories, sep_idx, cem)
         
         
         return sample, policy
@@ -374,7 +374,7 @@ class Learner(object):
             timestep = 0
             while not done and timestep < 1000:
                 current_trajectory["observations"][timestep] = observation
-                _, action = self.action_sample(current_trajectory, percentage=1.0, p=[0,0,0,0,0,0,0,1])
+                _, action = self.action_sample(current_trajectory, percentage=1.0, p=[0,0,0,0,0,0,0,1], cem=False)
                 action = np.clip(action.cpu().numpy(), -1, 1)
                 new_observation, reward, done, info = self.env.step(action)
                 current_trajectory["actions"][timestep] = action
