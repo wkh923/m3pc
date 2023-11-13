@@ -326,7 +326,7 @@ class MTM(nn.Module):
                     var = target.var(dim=-1, keepdim=True)
                     target_s = (target - mean) / (var + 1.0e-6) ** 0.5
                 
-                raw_loss = nn.MSELoss(reduction="none")(pred, target)
+                raw_loss = nn.MSELoss(reduction="none")(pred, target) / 4
 
             # raw_loss shape = [batch_size, T, P, 1]
 

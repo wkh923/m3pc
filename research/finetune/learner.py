@@ -46,7 +46,7 @@ class Learner(object):
         self.critic2_target = Critic(env.observation_space.shape[-1], env.action_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
         self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path))
         self.value = Value(env.observation_space.shape[-1], cfg.critic_hidden_size).to(cfg.device)
-        self.value.load_state_dict(torch.load(pretrain_value_path))
+        self.value.load_state_dict(torch.load(pretrain_value_path, map_location=cfg.device))
         self.tokenizer_manager = tokenizer_manager
         self.discrete_map = discrete_map
         self.mtm_optimizer = MTM.configure_optimizers(

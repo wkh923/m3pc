@@ -123,6 +123,7 @@ class ReplayBuffer:
             keep_idx = [keep_idx[i] for i in shuffle_indices]
         
         self.path_lengths = self.path_lengths[keep_idx]
+        self.path_lengths_avg = np.mean(self.path_lengths)
         self.observations_segmented = self.observations_segmented[keep_idx]
         self.actions_segmented = self.actions_segmented[keep_idx]
         self.rewards_segmented = self.rewards_segmented[keep_idx]
@@ -179,10 +180,11 @@ class ReplayBuffer:
             
             current_trajectory["total_return"] = current_trajectory["rewards"].sum()
             
-            if current_trajectory["path_length"] >= self.cfg.traj_length:
+            if current_trajectory["path_length"] >= self.path_lengths_avg:
                 new_trajectories.append(current_trajectory)
         
-        self.update_buffer(new_trajectories)
+            if len(new_trajectories) > 0:
+                self.update_buffer(new_trajectories)
     
     
     
@@ -202,6 +204,7 @@ class ReplayBuffer:
         
         
         self.path_lengths = np.concatenate((self.path_lengths[num_new_trajectories:], new_path_lengths), axis=0)
+        self.path_lengths_avg = np.mean(self.path_lengths)
         self.observations_segmented = np.concatenate((self.observations_segmented[num_new_trajectories:], new_observations), axis=0)
         self.actions_segmented = np.concatenate((self.actions_segmented[num_new_trajectories:], new_actions), axis=0)
         self.rewards_segmented = np.concatenate((self.rewards_segmented[num_new_trajectories:], new_rewards), axis=0)
