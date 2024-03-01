@@ -21,11 +21,8 @@ from omegaconf import DictConfig, OmegaConf
 from research.jaxrl.utils import make_env
 from research.logger import WandBLogger, WandBLoggerConfig, logger, stopwatch
 from research.mtm.datasets.base import DatasetProtocol
-from research.mtm.datasets.sequence_dataset import Trajectory
 from research.mtm.distributed_utils import DistributedParams, get_distributed_params
-from research.mtm.models.mtm_model import MTM, make_plots_with_masks
 from research.mtm.tokenizers.base import Tokenizer, TokenizerManager
-from research.mtm.tokenizers.continuous import ContinuousTokenizer
 from research.mtm.utils import (
     get_cfg_hash,
     get_ckpt_path_from_folder,
@@ -45,11 +42,17 @@ class RunConfig:
     seed: int = 0
     """RNG seed."""
 
-    batch_size: int = 64
-    """Batch size used during training."""
+    traj_batch_size: int = 64
+    """Batch size used during MTM training."""
     
-    buffer_size: int = 10000
-    """Max replay buffer size"""
+    traj_buffer_size: int = 10000
+    """Max trajectory level replay buffer size"""
+    
+    trans_batch_size: int = 256
+    """"Batch size used during critic training"""
+    
+    trans_buffer_size: int = 20000
+    """"Max transition level replay buffer size"""
     
     log_every: int = 100
     """Print training loss every N steps."""
@@ -73,12 +76,13 @@ class RunConfig:
     """Number of training steps."""
 
     learning_rate: float = 1e-3
-    """Learning rate."""
+    """Learning rate for MTM"""
     
     critic_lr: float = 5e-4
+    """"Learning rate for Q"""
     
     v_lr: float = 5e-4
-    
+    """"Learning rate for V"""
 
     weight_decay: float = 1e-5
     """Weight decay."""
@@ -90,42 +94,57 @@ class RunConfig:
     """Gym environment"""
     
     pretrain_discount: float = 1.5
-    
+    "Discount in pretrain phase which is used to calculate RTG"
     
     discount: float = 0.99
-    """Discount factor"""
+    """Discount factor in finetuning phase"""
     
-    num_updates_per_online_rollout: int = 300
+    mtm_iter_per_rollout: int = 300
+    """MTM iterations per online rollout"""
     
-    n_iter: int = 5
-    """The number of CEM iterations"""
+    v_iter_per_mtm: int = 10
+    """"V update iterations per MTM update"""
     
-    n_rsamples: int = 800
-    """The number of random action samples"""
-    
-    n_policy_samples: int = 100
+    action_samples: int = 10
     """The number of policy action samples"""
-    
-    top_k: int = 100
-    """The number of action samples used for CEM update"""
     
     use_masked_loss: bool = True
     
     loss_weight: Dict[str, float] = field(default_factory=lambda: {
         "actions": 1.0, "states": 1.0, "returns": 1.0, "rewards": 1.0})
     
-    
     clip_min: float = -1.0
+    """"Minimum action"""
     
     clip_max: float = 1.0
+    """"Maximum action"""
     
     temperature: float = 0.5
+    """Used in planning"""
     
     action_noise_std: float = 0.2
     
-    tau : float = 0.1
+    tau: float = 0.1
+    """Used to construct replay buffer"""
+    
+    select_mode: str = "uniform"
+    """uniform: sample the trajactories randomly;
+    prob: assign higher sample probability to trajectories with higher return"""
+    
+    mask_ratio: int = 0.5
+    """The ratio of masked token during MTM training phase"""
+    
+    p_weights: List[int] = field(default_factory=lambda: [0.1, 0.1, 0.7, 0.1])
+    """The probability of different madalities to be autoregressive"""
     
     critic_hidden_size: int = 256
+    """"Hidden size of Q and V"""
+    
+    plan: bool = True
+    """Do planning when rolling out"""
+    
+    beam_width: int = 256
+    """The number of candidates retained during beam search"""
 
 
 def main(hydra_cfg):
@@ -162,7 +181,7 @@ def main(hydra_cfg):
     val_loader = DataLoader(
             val_dataset,
             # shuffle=False,
-            batch_size=cfg.batch_size,
+            batch_size=cfg.traj_batch_size,
             num_workers=1,
             sampler=val_sampler,
         )
@@ -178,8 +197,7 @@ def main(hydra_cfg):
         discrete_map[k] = v.discrete
     logger.info(f"Tokenizers: {tokenizers}")
     
-    buffer = ReplayBuffer(cfg, train_raw_dataset, cfg.pretrain_discount, cfg.traj_length, batch_size=cfg.batch_size, 
-                          buffer_size=cfg.buffer_size, name=cfg.env_name, mode="uniform", max_iterations=cfg.num_updates_per_online_rollout)
+    buffer = ReplayBuffer(cfg, train_raw_dataset, cfg.pretrain_discount)
     dataloader = iter(buffer)
     batch_example = next(dataloader)
     
@@ -265,31 +283,34 @@ def main(hydra_cfg):
             logger.info(f"No checkpoints found, starting from scratch.")
     logger.info(f"starting from step={step}")
     
-    epoch = 0
+    episode = 0
     while True:
         B = time.time()
         log_dict = {}
-        log_dict["train/epochs"] = epoch
+        log_dict["train/episodes"] = episode
         
         start_time = time.time()
+        
+        for critic_iter in range(cfg.v_iter_per_mtm):
+            experiences = buffer.trans_sample()
+            critic_log = learner.critic_update(experiences)
+            value_log = learner.value_update(experiences)
+            learner.critic_target_soft_update()
+        log_dict.update(critic_log)
+        log_dict.update(value_log)
+        
         try:
             batch = next(dataloader)
         except StopIteration:
             logger.info(f"Rollout a new trajectory")
-            buffer.online_rollout(learner.mtm, tokenizer_manager, learner.action_sample, cfg.device, num_trajectories=1, percentage=1, 
-                                  clip_min=cfg.clip_min, clip_max=cfg.clip_max, action_noise_std=cfg.action_noise_std)
+            buffer.online_rollout(learner.action_sample)
+            episode += 1
             dataloader = iter(buffer)
             batch = next(dataloader)    
         
-        mtm_log = learner.mtm_update(batch)
-        critic_log = learner.critic_update(batch)
-        value_log = learner.value_update(batch)
+        mtm_log = learner.mtm_update(batch, data_shapes, discrete_map)
         log_dict.update(mtm_log)
-        log_dict.update(critic_log)
-        log_dict.update(value_log)
         log_dict["time/train_step"] = time.time() - start_time
-        
-        learner.critic_target_soft_update()
         
         if step % cfg.print_every == 0:
             try:
@@ -359,7 +380,7 @@ def main(hydra_cfg):
                 losses,
                 masked_losses,
                 masked_c_losses
-            ) = learner.compute_mtm_loss(val_batch)
+            ) = learner.compute_mtm_loss(val_batch, data_shapes, discrete_map)
             
             log_dict["eval/loss"] = loss.item()
             for k, v in losses.items():

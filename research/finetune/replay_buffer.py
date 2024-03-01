@@ -1,6 +1,8 @@
 import numpy as np
 import torch
-from typing import List
+import random
+from typing import List, Callable
+from collections import deque, namedtuple
 
 from research.jaxrl.datasets.d4rl_dataset import D4RLDataset
 from research.jaxrl.utils import make_env
@@ -18,34 +20,54 @@ class ReplayBuffer:
         cfg,
         dataset: D4RLDataset,
         discount: float = 0.99,
-        sequence_length: int = 32,
         max_path_length: int = 1000,
-        batch_size: int = 256,
-        buffer_size: int = 1000,
         use_reward: bool = True,
-        name: str = "",
-        mode: str = "uniform",
-        max_iterations: int = 300,
         shuffle: bool = True
     ):
         self.cfg = cfg
         self.env = dataset.env
         self.dataset = dataset
         self.max_path_length = max_path_length
-        self.sequence_length = sequence_length
-        self.batch_size = batch_size
-        self.buffer_size = buffer_size
+        self.sequence_length = cfg.traj_length
+        self.traj_batch_size = cfg.traj_batch_size
+        self.traj_buffer_size = cfg.traj_buffer_size
+        self.trans_batch_size = cfg.trans_batch_size
+        self.trans_buffer_size = cfg.trans_buffer_size
         self._use_reward = use_reward
-        self._name = name
-        self._mode = mode 
-        self.max_iterations = max_iterations
+        self._name = cfg.env_name
+        self._mode = cfg.select_mode 
+        self.mtm_iter = cfg.mtm_iter_per_rollout
+        self.v_iter = cfg.v_iter_per_mtm
 
         # extract data from Dataset
         self.observations_raw = dataset.observations
         self.actions_raw = dataset.actions
         self.rewards_raw = dataset.rewards.reshape(-1, 1)
         self.terminals_raw = dataset.dones_float
-
+        
+        #TODO: extract transition from Dataset and add top transitions into replay buffer
+        self.next_observations_raw = np.roll(self.observations_raw, -1, axis=0)
+        self.next_observations_raw[-1] = np.zeros_like(self.next_observations_raw[-1])
+        sorted_idx_raw = np.argsort(self.rewards_raw[:, 0], axis=0)[::-1][:self.trans_buffer_size]
+        np.random.shuffle(sorted_idx_raw)
+        self.sorted_observations_raw = self.observations_raw[sorted_idx_raw]
+        self.sorted_actions_raw = self.actions_raw[sorted_idx_raw]
+        self.sorted_rewards_raw = self.rewards_raw[sorted_idx_raw]
+        self.sorted_terminals_raw = self.terminals_raw[sorted_idx_raw]
+        self.sorted_next_observations_raw = self.next_observations_raw[sorted_idx_raw]
+        self.trans_buffer = deque(maxlen=self.trans_buffer_size)
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        for state, action, reward, next_state, done in zip(
+            self.sorted_observations_raw,
+            self.sorted_actions_raw,
+            self.sorted_rewards_raw,
+            self.sorted_next_observations_raw,
+            self.sorted_terminals_raw
+        ):
+            e = self.experience(state, action, reward, next_state, done)
+            self.trans_buffer.append(e)
+            
+        
         ## segment
         self.actions_segmented, self.termination_flags, self.path_lengths = segment(
             self.actions_raw, self.terminals_raw, max_path_length
@@ -109,9 +131,9 @@ class ReplayBuffer:
         keep_idx = []
         traj_count = 0
         for idx, pl in enumerate(self.path_lengths):
-            if traj_count == self.buffer_size:
+            if traj_count == self.traj_buffer_size:
                 break
-            elif pl < sequence_length: 
+            elif pl < self.sequence_length: 
                 pass
             else:
                 keep_idx.append(idx)
@@ -132,18 +154,11 @@ class ReplayBuffer:
         self.p = self.trajectory_returns / self.trajectory_returns.sum(axis=0)
         
     def online_rollout(self,
-                       model: MTM,
-                       tokenizer_manager: TokenizerManager,
-                       sample_func, 
-                       device: str,
+                       sample_func: Callable, 
                        num_trajectories: int = 1,
-                       percentage: float = 1.0,
-                       clip_min: float = -0.1,
-                       clip_max: float = 0.1,
-                       action_noise_std: float = 0.2
                        ):
         
-        assert num_trajectories <= self.buffer_size
+        assert num_trajectories <= self.traj_buffer_size
         new_trajectories = []
         
         for _ in range(num_trajectories):
@@ -159,9 +174,11 @@ class ReplayBuffer:
             timestep = 0
             while not done and timestep < self.max_path_length:
                 current_trajectory["observations"][timestep] = observation
-                action, _ = sample_func(current_trajectory, percentage=0.8)
-                action = np.clip(action.cpu().numpy(), clip_min, clip_max)
+                action, _ = sample_func(current_trajectory, percentage=1.0, plan=self.cfg.plan)
+                action = np.clip(action.cpu().numpy(), self.cfg.clip_min, self.cfg.clip_max)
                 new_observation, reward, done, _ = self.env.step(action)
+                e = self.experience(observation, action, reward, new_observation, done)
+                self.trans_buffer.append(e)
                 current_trajectory["actions"][timestep] = action
                 current_trajectory["rewards"][timestep] = reward
                 observation = new_observation
@@ -180,8 +197,8 @@ class ReplayBuffer:
             
             current_trajectory["total_return"] = current_trajectory["rewards"].sum()
             
-            if current_trajectory["path_length"] >= self.path_lengths_avg:
-                new_trajectories.append(current_trajectory)
+            # if current_trajectory["path_length"] >= self.path_lengths_avg:
+            new_trajectories.append(current_trajectory)
         
             if len(new_trajectories) > 0:
                 self.update_buffer(new_trajectories)
@@ -212,7 +229,7 @@ class ReplayBuffer:
         self.trajectory_returns = np.concatenate((self.trajectory_returns[num_new_trajectories:], new_trajectory_returns), axis=0)
         self.p = self.trajectory_returns / self.trajectory_returns.sum(axis=0)
     
-    def sample(self):
+    def traj_sample(self):
         """Sample a batch of trajectories from the replay buffer.
         
         Depending on the mode, the sampling will be uniform or based on trajectory return probabilities.
@@ -222,11 +239,11 @@ class ReplayBuffer:
         """
         if self._mode == "uniform":
             # Sample uniformly without considering trajectory return probabilities
-            sampled_indices = np.random.choice(len(self.observations_segmented), size=self.batch_size, replace=True)
+            sampled_indices = np.random.choice(len(self.observations_segmented), size=self.traj_batch_size, replace=True)
 
         elif self._mode == "prob":
             # Sample indices based on trajectory return probabilities
-            sampled_indices = np.random.choice(np.arange(len(self.p)), size=self.batch_size, p=self.p)
+            sampled_indices = np.random.choice(np.arange(len(self.p)), size=self.traj_batch_size, p=self.p)
         else:
             raise ValueError(f"Invalid sampling mode: {self._mode}")
 
@@ -253,6 +270,18 @@ class ReplayBuffer:
 
         return batch
     
+    def trans_sample(self):
+        """"Sample a batch of experinces from transition level replay buffer"""
+        experiences = random.sample(self.trans_buffer, k=self.trans_buffer_size)
+        
+        states = torch.from_numpy(np.stack([e.state for e in experiences if e is not None])).float().to(self.cfg.device)
+        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.cfg.device)
+        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.cfg.device)
+        next_states = torch.from_numpy(np.stack([e.next_state for e in experiences if e is not None])).float().to(self.cfg.device)
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(self.cfg.device)
+        
+        return (states, actions, rewards, next_states, dones)
+    
     def __iter__(self):
         """Initializes the iterator and returns the object itself."""
         # Initializing current index to 0. This will be used to keep track of batches yielded.
@@ -262,11 +291,11 @@ class ReplayBuffer:
     def __next__(self):
         """Returns the next batch. If all batches are already fetched, raises StopIteration."""
         # If we've already yielded the maximum number of batches, stop the iteration.
-        if self.current_index >= self.max_iterations:
+        if self.current_index >= self.mtm_iter:
             raise StopIteration
         self.current_index += 1
         # Return the next batch.
-        return self.sample()
+        return self.traj_sample()
             
             
             

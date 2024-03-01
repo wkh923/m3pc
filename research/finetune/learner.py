@@ -63,10 +63,7 @@ class Learner(object):
 
             # then cosine decay
             assert self.cfg.num_train_steps > self.cfg.warmup_steps
-            step = step - self.cfg.warmup_steps
-            return 0.5 * (
-                1 + np.cos(step / (self.cfg.num_train_steps - self.cfg.warmup_steps) * np.pi)
-            )
+            return 1
 
         self.mtm_scheduler = LambdaLR(self.mtm_optimizer, lr_lambda=_schedule)
         
@@ -85,52 +82,89 @@ class Learner(object):
                                                  weight_decay = self.cfg.weight_decay,
                                                  betas=(0.9, 0.999))
     
-    def compute_target_cem_action(self, trajectory: Dict[str, torch.Tensor], seg_idx: int, cem):
-        
-        with torch.no_grad():
-            action_values = self.tokenizer_manager.tokenizers["actions"].values[0,0,0,:]
-            encode = self.tokenizer_manager.encode(trajectory)
-            encode_batch = {k: v.repeat(self.cfg.n_policy_samples + self.cfg.n_rsamples, 1, 1, 1) for k, v in encode.items()}
-            torch_rcbc_mask = create_rcbc_mask(traj_length=self.cfg.traj_length, device=self.cfg.device, pos=seg_idx)
-            torch_fd_mask = create_fd_mask(traj_length=self.cfg.traj_length, device=self.cfg.device, pos=seg_idx)
-            policy_pred = self.mtm(encode_batch, torch_rcbc_mask)["actions"][0, seg_idx:, :, :] #(traj_length-seg_idx+1, action_dim, num_bins)
-            policy_dist = D.categorical.Categorical(logits=policy_pred)
-            cem_dist = D.categorical.Categorical(logits=policy_pred)
-            if cem:
-                for it in range (self.cfg.n_iter):
-                    #Generate action samples
-                    action_policy_samples = policy_dist.sample((self.cfg.n_policy_samples,))
-                    action_rsamples = cem_dist.sample((self.cfg.n_rsamples,))
-                    action_samples = torch.cat([action_rsamples, action_policy_samples], dim=0)
-                    encode_action_samples = F.one_hot(action_samples, action_values.shape[0])
-                    
-                    
-                    #Use the model to predict future sequence
-                    encode_batch["actions"][:, seg_idx:, :, :] = encode_action_samples
-                    fd_pred = self.mtm(encode_batch, torch_fd_mask)
-                    decode = self.tokenizer_manager.decode(fd_pred)
-                    future_rewards = decode["rewards"][:, seg_idx:-1, :].squeeze(-1) #(num_samples, traj_length - seg_idx)
-                    discounts = torch.tensor([self.cfg.discount ** i for i in range(future_rewards.shape[1])], device=self.cfg.device)[None, :]
-                    expected_return = (future_rewards * discounts).sum(dim=1) + (self.value(decode["states"][:, -1, :]) * (self.cfg.discount ** future_rewards.shape[1])).squeeze(-1)
-                    
-                    sorted_return, sorted_indices = torch.sort(expected_return, descending=True)
-                    top_k_actions = action_samples[sorted_indices[:self.cfg.top_k]]
-                    encode_top_k_actions = F.one_hot(top_k_actions, action_values.shape[0]) # (k, traj_length-seg_idx+1, action_dim, num_bins)
-                    sorted_return = sorted_return[:self.cfg.top_k]
-                    max_return = sorted_return.max(0)[0]
-                    score = torch.exp(self.cfg.temperature * (sorted_return - max_return))
-                    cem_logits = torch.log((score[:, None, None, None] * encode_top_k_actions).sum(dim=0)) #(traj_length-seg_idx+1, action_dim, num_bins)
-                    cem_dist = D.categorical.Categorical(logits=cem_logits)
-            
-            # print("P:", policy_pred[0], "C:", cem_logits[0])
-            action_sample = action_values[cem_dist.sample()[0]]
-            action_expert = action_values[torch.max(policy_pred, dim=-1)[1][0]]
-            # print(torch.abs(action_sample-action_expert))
-            
-            
-        return action_sample, action_expert
     
-    def compute_mtm_loss(self, batch: Dict[str, torch.Tensor]):
+    def bs_planning(self, trajectory: Dict[str, torch.Tensor], h: int):
+        
+        trajectories = {k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()}
+        with torch.no_grad():
+            for i in range(self.cfg.traj_length - h, self.cfg.traj_length):
+                encode = self.tokenizer_manager.encode(trajectories)
+                torch_rcbc_mask = create_rcbc_mask(self.cfg.traj_length, self.cfg.device, i)
+                copied_states = trajectories["states"][:,i,:].repeat_interleave(self.cfg.action_samples, dim=0)#[beam_width*n, obs_dim]
+                if i > self.cfg.traj_length - h:
+                    copied_cum_rewards = trajectories["rewards"][:, self.cfg.traj_length - h : i, :].sum(dim=1)
+                else: copied_cum_rewards = torch.zeros_like(trajectories["rewards"][:, i, :])
+                copied_cum_rewards = copied_cum_rewards.repeat_interleave(self.cfg.action_samples, dim=0)#[beam_width*n, 1]
+                action_mean = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))["actions"][:,i, :] 
+                sampled_actions_mean = action_mean.repeat_interleave(self.cfg.action_samples, dim=0) #[beam_width*n, action_dim]
+                sampled_actions = sampled_actions_mean + self.cfg.action_noise_std * torch.randn(sampled_actions_mean.shape, device=sampled_actions_mean.device)
+                expected_return = copied_cum_rewards + self.cfg.discount ** (i - (self.cfg.traj_length - h)) * torch.minimum(self.critic1(copied_states, sampled_actions), self.critic2(copied_states, sampled_actions))
+                sorted_return, sorted_idx = torch.sort(expected_return.squeeze(-1), descending=True)
+                trajectories["actions"][:, i, :] = sampled_actions[sorted_idx[:self.cfg.beam_width]]
+                
+                if i < self.cfg.traj_length - 1:   
+                    encode = self.tokenizer_manager.encode(trajectories)
+                    torch_rew_mask = create_rew_mask(self.cfg.traj_length, self.cfg.device, i)
+                    torch_fd_mask = create_fd_mask(self.cfg.traj_length, self.cfg.device, i+1)
+                    rew_pred = self.tokenizer_manager.decode(self.mtm(encode, torch_rew_mask))["rewards"][:, i, :]
+                    next_state_pred = self.tokenizer_manager.decode(self.mtm(encode, torch_fd_mask))["states"][:, i+1, :]
+                    trajectories["rewards"][:, i, :] = rew_pred
+                    trajectories["states"][:, i+1, :] = next_state_pred
+                
+            max_return = sorted_return.max(0)[0]
+            score = torch.exp(self.cfg.temperature * (sorted_return[:self.cfg.beam_width] - max_return))
+            sample_idx = torch.multinomial(score, 1)[0]
+            sampled_action = trajectories["actions"][sample_idx, self.cfg.traj_length - h, :]
+            best_action = trajectories["actions"][0, self.cfg.traj_length - h, :]
+            return sampled_action, best_action
+                
+    def action_sample(self, sequence_history, percentage=1.0, horizon=4, plan=True):
+        
+        end_idx = sequence_history["path_length"]
+        if end_idx + horizon < self.cfg.traj_length:
+            horizon = self.cfg.traj_length - end_idx
+        obs_dim = sequence_history["observations"].shape[-1]
+        action_dim = sequence_history["actions"].shape[-1]
+        zero_trajectory = {
+            "observations": np.zeros((1, self.cfg.traj_length, obs_dim)),
+            "actions": np.zeros((1, self.cfg.traj_length, action_dim)),
+            "rewards": np.zeros((1, self.cfg.traj_length, 1)),
+            "values": np.zeros((1, self.cfg.traj_length, 1))
+        }
+        history_length = self.cfg.traj_length - horizon + 1
+        
+            
+        for k in zero_trajectory.keys():
+            zero_trajectory[k][0, :history_length] = sequence_history[k][end_idx - history_length + 1 : end_idx + 1]
+        
+        torch_zero_trajectory = {
+            "states" if k == "observations" else "returns" if k == "values" else k: torch.tensor(v, device=self.cfg.device, dtype=torch.float32) 
+            for k, v in zero_trajectory.items()
+        }
+        
+        return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
+        return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
+        
+        return_value = return_min + (return_max - return_min) * percentage
+        return_to_go = float(return_value)
+        returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+        torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(self.cfg.device)
+        
+        if plan:
+            sample, best = self.bs_planning(torch_zero_trajectory, horizon)
+            return sample, best
+        else:
+            with torch.no_grad():
+                encode = self.tokenizer_manager.encode(torch_zero_trajectory)
+                torch_rcbc_mask = create_rcbc_mask(self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - horizon)
+                policy_action = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))["actions"][0, self.cfg.traj_length - horizon, :]
+            return policy_action, None               
+                
+    
+    def compute_mtm_loss(self, 
+                         batch: Dict[str, torch.Tensor],
+                         data_shapes,
+                         discrete_map):
         
         #calculate future prediction loss
         losses = {}
@@ -138,19 +172,17 @@ class Learner(object):
         masked_c_losses = {}
         encoded_batch = self.tokenizer_manager.encode(batch)
         targets = encoded_batch
-        torch_rcbc_mask = create_random_mask(self.cfg.traj_length, self.cfg.device, "rcbc")
-        rcbc_preds = self.mtm(encoded_batch, torch_rcbc_mask)
-        torch_fd_mask = create_random_mask(self.cfg.traj_length, self.cfg.device, "fd")
-        fd_preds = self.mtm(encoded_batch, torch_fd_mask)
+        masks = create_random_autoregressize_mask(data_shapes, self.cfg.mask_ratio,
+                                                  self.cfg.traj_length, 
+                                                  self.cfg.device,
+                                                  self.cfg.p_weights)
+        preds = self.mtm(encoded_batch, masks)
+        
         for key in targets.keys():
-            if key == "actions":
-                target = targets[key]
-                pred = rcbc_preds[key]
-                mask = torch_rcbc_mask[key]
-            else:
-                target = targets[key]
-                pred = fd_preds[key]
-                mask = torch_fd_mask[key]
+            
+            target = targets[key]
+            pred = preds[key]
+            mask = masks[key]
             
             if len(mask.shape) == 1:
                 # only along time dimension: repeat across the given dimension
@@ -158,11 +190,19 @@ class Learner(object):
             elif len(mask.shape) == 2:
                 pass
             
-            if key == "actions" :
-                    raw_loss = nn.CrossEntropyLoss(reduction="none")(
+            if discrete_map[key]:
+                raw_loss = nn.CrossEntropyLoss(reduction="none")(
                     pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
                 ).unsqueeze(3)
-            else: 
+            else:
+                # apply normalization
+                if self.mtm.norm == "l2":
+                    target = target / torch.norm(target, dim=-1, keepdim=True)
+                elif self.mtm.norm == "mae":
+                    mean = target.mean(dim=-1, keepdim=True)
+                    var = target.var(dim=-1, keepdim=True)
+                    target_s = (target - mean) / (var + 1.0e-6) ** 0.5
+                
                 raw_loss = nn.MSELoss(reduction="none")(pred, target)
             
             # raw_loss shape = [batch_size, T, P, 1]
@@ -190,19 +230,9 @@ class Learner(object):
         
         return loss, losses, masked_losses, masked_c_losses
     
-    def compute_q_loss(self, batch):
+    def compute_q_loss(self, experience):
         
-        #convert batch data structure
-        states = batch["states"][:, :-1]
-        actions = batch["actions"][:, :-1]
-        rewards = batch["rewards"][:, :-1]
-        next_states = batch["states"][:, 1:]
-        
-        # Flatten the data for compatibility with the model
-        states = states.reshape(-1, states.shape[-1])
-        actions = actions.reshape(-1, actions.shape[-1])
-        rewards = rewards.reshape(-1)
-        next_states = next_states.reshape(-1, next_states.shape[-1])
+        states, actions, rewards, next_states, dones = experience
     
         with torch.no_grad():
             next_v = self.value(next_states)
@@ -215,11 +245,9 @@ class Learner(object):
         
         return critic1_loss, critic2_loss
     
-    def compute_value_loss(self, batch):
-        states = batch["states"][:, :-1]
-        actions = batch["actions"][:, :-1]
-        states = states.reshape(-1, states.shape[-1])
-        actions = actions.reshape(-1, actions.shape[-1])
+    def compute_value_loss(self, experience):
+        
+        states, actions, rewards, next_states, dones = experience
         
         with torch.no_grad():
             q1 = self.critic1_target(states, actions)   
@@ -232,8 +260,8 @@ class Learner(object):
         return value_loss
         
     
-    def mtm_update(self, batch):
-        loss, losses, masked_losses, masked_c_losses = self.compute_mtm_loss(batch)
+    def mtm_update(self, batch, data_shapes, discrete_map):
+        loss, losses, masked_losses, masked_c_losses = self.compute_mtm_loss(batch, data_shapes, discrete_map)
         log_dict = {}
         for k, l in losses.items():
             log_dict[f"train/loss_{k}"] = l
@@ -254,8 +282,8 @@ class Learner(object):
         return log_dict
         
     def critic_update(self,
-                      batch: Dict[str, torch.Tensor]):
-        critic1_loss, critic2_loss = self.compute_q_loss(batch)
+                      experience: Tuple[torch.Tensor]):
+        critic1_loss, critic2_loss = self.compute_q_loss(experience)
         
         log_dict = {}
 
@@ -274,14 +302,12 @@ class Learner(object):
         return log_dict
     
     def value_update(self,
-                     batch: Dict[str, torch.Tensor]):
+                     experience: Tuple[torch.Tensor]):
         
-        value_loss = self.compute_value_loss(batch)
+        value_loss = self.compute_value_loss(experience)
         
         log_dict = {}
-        
         log_dict[f"train/v_loss"] = value_loss
-        
         self.value.zero_grad(set_to_none=True)
         value_loss.backward()
         self.value_optimizer.step()
@@ -297,49 +323,6 @@ class Learner(object):
         for target_param, param in zip(self.critic2_target.parameters(), self.critic2.parameters()):
             target_param.data.copy_(self.cfg.tau * param.data + (1.0 - self.cfg.tau) * target_param.data)
     
-    
-    def action_sample(self, sequence_history, percentage=1.0, p=[0,0.1,0.2,0.4,0.2,0.1,0,0], cem=True):
-        
-        end_idx = sequence_history["path_length"]
-        if sequence_history["path_length"] < self.cfg.traj_length:
-            p = [1, 0, 0, 0, 0, 0, 0, 0]
-        #Seperate history and prediction
-        sep_idx = np.random.choice(self.cfg.traj_length, p=p)
-
-        _, obs_dim = sequence_history["observations"].shape
-        action_dim = sequence_history["actions"].shape[-1]
-        zero_trajectory = {
-            "observations": np.zeros((1, self.cfg.traj_length, obs_dim)),
-            "actions": np.zeros((1, self.cfg.traj_length, action_dim)),
-            "rewards": np.zeros((1, self.cfg.traj_length, 1)),
-            "values": np.zeros((1, self.cfg.traj_length, 1))
-        }
-        
-        for k in zero_trajectory.keys():
-            if sep_idx == 0:
-                zero_trajectory[k][0, 0] = sequence_history[k][end_idx]
-            else:
-                zero_trajectory[k][0, :sep_idx + 1] = sequence_history[k][end_idx - sep_idx:end_idx + 1]
-        
-        torch_zero_trajectories = {
-            "states" if k == "observations" else "returns" if k == "values" else k: torch.tensor(v, device=self.cfg.device) 
-            for k, v in zero_trajectory.items()
-        }
-        
-        return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
-        return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
-        
-        
-        return_value = return_min + (return_max - return_min) * percentage
-        return_to_go = float(return_value)
-        returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
-        torch_zero_trajectories["returns"] = torch.from_numpy(returns).to(self.cfg.device)
-        
-        sample, policy = self.compute_target_cem_action(torch_zero_trajectories, sep_idx, cem)
-        
-        
-        return sample, policy
-        
     
     def evaluate(self,
                  num_episodes: int,
@@ -365,16 +348,16 @@ class Learner(object):
                                   "path_length": 0}
             
             observation, done = self.env.reset(), False
-            if len(videos) < num_videos:
-                try:
-                    imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
-                except:
-                    imgs = [self.env.render()[::-1]]
+            # if len(videos) < num_videos:
+            #     try:
+            #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
+            #     except:
+            #         imgs = [self.env.render()[::-1]]
             
             timestep = 0
             while not done and timestep < 1000:
                 current_trajectory["observations"][timestep] = observation
-                _, action = self.action_sample(current_trajectory, percentage=1.0, p=[0,0,0,0,0,0,0,1], cem=False)
+                action, _ = self.action_sample(current_trajectory, percentage=1.0, plan=False)
                 action = np.clip(action.cpu().numpy(), -1, 1)
                 new_observation, reward, done, info = self.env.step(action)
                 current_trajectory["actions"][timestep] = action
@@ -382,14 +365,14 @@ class Learner(object):
                 observation = new_observation
                 timestep += 1
                 current_trajectory["path_length"] += 1
-                if len(videos) < num_videos:
-                    try:
-                        imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
-                    except:
-                        imgs.append(self.env.render()[::-1])
+                # if len(videos) < num_videos:
+                #     try:
+                #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
+                #     except:
+                #         imgs.append(self.env.render()[::-1])
             
-            if len(videos) < num_videos:
-                videos.append(np.array(imgs[:-1]))
+            # if len(videos) < num_videos:
+            #     videos.append(np.array(imgs[:-1]))
                 
             if "episode" in info:
                 for k in info["episode"].keys():
@@ -424,10 +407,10 @@ class Learner(object):
         log_data = {}
         for k, v in stats.items():
             log_data[f"eval_bc/{k}"] = v
-        for idx, v in enumerate(videos):
-            log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
-                v.transpose(0, 3, 1, 2), fps=10, format="gif"
-            )
+        # for idx, v in enumerate(videos):
+        #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
+        #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
+        #     )
 
         return log_data
     

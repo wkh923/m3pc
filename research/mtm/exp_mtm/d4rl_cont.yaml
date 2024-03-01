@@ -6,7 +6,7 @@ tokenizers:
     states:
       _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
     actions:
-      _target_: research.mtm.tokenizers.continuous_binned.ContinuousBinnedTokenizer.create
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
     returns:
       _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
     rewards:
@@ -16,9 +16,9 @@ tokenizers:
 
 dataset:
     use_reward: True
-    env_name: "hopper-medium-replay-v2"
+    env_name: "hopper-medium-v2"
     train_val_split: 0.95
 
 wandb:
-    project: "pretrain"
+    project: "hopper-pretrain"
     resume: allow
