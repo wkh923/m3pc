@@ -303,7 +303,16 @@ def main(hydra_cfg):
             batch = next(dataloader)
         except StopIteration:
             logger.info(f"Rollout a new trajectory")
+            learner.mtm.eval()
+            learner.critic1.eval()
+            learner.critic2.eval()
+            learner.value.eval()
             buffer.online_rollout(learner.action_sample)
+            learner.mtm.train()
+            learner.critic1.train()
+            learner.critic2.train()
+            learner.value.train()
+            
             episode += 1
             dataloader = iter(buffer)
             batch = next(dataloader)    

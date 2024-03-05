@@ -42,12 +42,12 @@ finetune_args:
     discount: 0.99
     seed: 1000
     traj_batch_size: 1024
-    trans_batch_size: 512
+    trans_batch_size: 4096
     warmup_steps: 1000
     num_train_steps: 90000
     learning_rate: 1e-4
-    critic_lr: 3e-4
-    v_lr: 3e-4
+    critic_lr: 1e-4
+    v_lr: 1e-4
     weight_decay: 5e-3
     device: cuda
     use_masked_loss: False
@@ -71,7 +71,7 @@ finetune_args:
     plan: True
     beam_width: 128
     action_samples: 5
-    temperature: 0.5
+    temperature: 1.0
     action_noise_std: 0.1
 
     #replay buffer

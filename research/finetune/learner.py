@@ -118,6 +118,7 @@ class Learner(object):
             sample_idx = torch.multinomial(score, 1)[0]
             sampled_action = trajectories["actions"][sample_idx, self.cfg.traj_length - h, :]
             best_action = trajectories["actions"][0, self.cfg.traj_length - h, :]
+            
             return sampled_action, best_action
                 
     def action_sample(self, sequence_history, percentage=1.0, horizon=4, plan=True):
