@@ -237,7 +237,7 @@ class Learner(object):
         states, actions, rewards, next_states, dones = experience
     
         with torch.no_grad():
-            next_v = self.value(next_states)
+            next_v = self.value(next_states) * (1 - dones)
             target_q_values = rewards + self.cfg.discount * next_v
         
         q1 = self.critic1(states, actions)
@@ -254,7 +254,7 @@ class Learner(object):
         with torch.no_grad():
             q1 = self.critic1_target(states, actions)   
             q2 = self.critic2_target(states, actions)
-            min_Q = torch.min(q1,q2)
+            min_Q = torch.min(q1,q2) * (1 - dones)
         
         value = self.value(states)
         value_loss = loss(min_Q - value, 0.8).mean()
