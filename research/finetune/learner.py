@@ -63,7 +63,9 @@ class Learner(object):
 
             # then cosine decay
             assert self.cfg.num_train_steps > self.cfg.warmup_steps
-            return 1
+            return 0.5 * (
+                1 + np.cos(step / (cfg.num_train_steps - cfg.warmup_steps) * np.pi)
+            )
 
         self.mtm_scheduler = LambdaLR(self.mtm_optimizer, lr_lambda=_schedule)
         

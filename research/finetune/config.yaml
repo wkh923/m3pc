@@ -76,7 +76,7 @@ finetune_args:
 
     #replay buffer
     traj_buffer_size: 1000
-    trans_buffer_size: 20000
+    trans_buffer_size: 200000
     pretrain_discount: 1.5
     clip_min: -1.0
     clip_max: 1.0
@@ -92,7 +92,7 @@ finetune_args:
 
 wandb:
     project: d4rl_finetune
-    entity: wkh923
+    entity: f69
     resume: null
 
 hydra:

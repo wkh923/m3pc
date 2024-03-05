@@ -272,7 +272,7 @@ class ReplayBuffer:
     
     def trans_sample(self):
         """"Sample a batch of experinces from transition level replay buffer"""
-        experiences = random.sample(self.trans_buffer, k=self.trans_buffer_size)
+        experiences = random.sample(self.trans_buffer, k=self.trans_batch_size)
         
         states = torch.from_numpy(np.stack([e.state for e in experiences if e is not None])).float().to(self.cfg.device)
         actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.cfg.device)
