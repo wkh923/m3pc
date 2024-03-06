@@ -79,6 +79,7 @@ finetune_args:
     #replay buffer
     traj_buffer_size: 1000
     trans_buffer_size: 200000
+    trans_buffer_update: True
     pretrain_discount: 1.5
     clip_min: -1.0
     clip_max: 1.0
