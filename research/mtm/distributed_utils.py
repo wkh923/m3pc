@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 @dataclasses.dataclass
 class DistributedParams:
     rank: int = 0
-    local_rank: int = 2
+    local_rank: int = 1
     world_size: int = 1
     local_world_size: int = torch.cuda.device_count()
     master_addr: str = "localhost"
