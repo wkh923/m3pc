@@ -1,7 +1,9 @@
-pretrain_model_path: /home/unitree/mtm/outputs/mtm_mae/hopper_medium_decoder1/model_140010.pt
-pretrain_critic1_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic1.pt
-pretrain_critic2_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic2.pt
-pretrain_value_path: /home/unitree/mtm/research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2value.pt
+local_cuda_rank: 0
+# because working dictionary is "....../mtm/outputs/2024-03-05/13-19-37"
+pretrain_model_path: ../../../outputs/mtm_mae/hopper_medium_decoder1/model_140010.pt
+pretrain_critic1_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic1.pt
+pretrain_critic2_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic2.pt
+pretrain_value_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2value.pt
 pretrain_args:
     env_name: hopper-medium-v2
     traj_length: 8
@@ -57,9 +59,9 @@ finetune_args:
     
     #train
     print_every: 50
-    log_every: 100
+    log_every: 50
     eval_every: 2000
-    save_every: 2000
+    save_every: 40000
     
     # #debug
     # print_every: 1
@@ -77,6 +79,7 @@ finetune_args:
     #replay buffer
     traj_buffer_size: 1000
     trans_buffer_size: 200000
+    trans_buffer_update: True
     pretrain_discount: 1.5
     clip_min: -1.0
     clip_max: 1.0
@@ -88,12 +91,14 @@ finetune_args:
     p_weights: [0.2, 0.1, 0.6, 0.1]
 
     critic_hidden_size: 256
+    critic_update: True # [True, False]
 
 
 wandb:
     project: d4rl_finetune
     entity: f69
     resume: null
+    experiment_name: hopper
 
 hydra:
     job:

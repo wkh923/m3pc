@@ -48,3 +48,5 @@ research/exorl/datasets/
 research/Implicit-Q-Learning/imgs
 research/Implicit-Q-Learning/trained_models
 research/Implicit-Q-Learning/wandb
+
+trained_models/
