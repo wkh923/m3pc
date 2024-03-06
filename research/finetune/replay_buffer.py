@@ -46,27 +46,27 @@ class ReplayBuffer:
         self.rewards_raw = dataset.rewards.reshape(-1, 1)
         self.terminals_raw = dataset.dones_float
         
-        # #TODO: extract transition from Dataset and add top transitions into replay buffer
-        # self.next_observations_raw = np.roll(self.observations_raw, -1, axis=0)
-        # self.next_observations_raw[-1] = np.zeros_like(self.next_observations_raw[-1])
-        # sorted_idx_raw = np.argsort(self.rewards_raw[:, 0], axis=0)[::-1][:self.trans_buffer_size]
-        # np.random.shuffle(sorted_idx_raw)
-        # self.sorted_observations_raw = self.observations_raw[sorted_idx_raw]
-        # self.sorted_actions_raw = self.actions_raw[sorted_idx_raw]
-        # self.sorted_rewards_raw = self.rewards_raw[sorted_idx_raw]
-        # self.sorted_terminals_raw = self.terminals_raw[sorted_idx_raw]
-        # self.sorted_next_observations_raw = self.next_observations_raw[sorted_idx_raw]
-        # self.trans_buffer = deque(maxlen=self.trans_buffer_size)
-        # self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
-        # for state, action, reward, next_state, done in zip(
-        #     self.sorted_observations_raw,
-        #     self.sorted_actions_raw,
-        #     self.sorted_rewards_raw,
-        #     self.sorted_next_observations_raw,
-        #     self.sorted_terminals_raw
-        # ):
-        #     e = self.experience(state, action, reward, next_state, done)
-        #     self.trans_buffer.append(e)
+        #TODO: extract transition from Dataset and add top transitions into replay buffer
+        self.next_observations_raw = np.roll(self.observations_raw, -1, axis=0)
+        self.next_observations_raw[-1] = np.zeros_like(self.next_observations_raw[-1])
+        sorted_idx_raw = np.argsort(self.rewards_raw[:, 0], axis=0)[::-1][:self.trans_buffer_size]
+        np.random.shuffle(sorted_idx_raw)
+        self.sorted_observations_raw = self.observations_raw[sorted_idx_raw]
+        self.sorted_actions_raw = self.actions_raw[sorted_idx_raw]
+        self.sorted_rewards_raw = self.rewards_raw[sorted_idx_raw]
+        self.sorted_terminals_raw = self.terminals_raw[sorted_idx_raw]
+        self.sorted_next_observations_raw = self.next_observations_raw[sorted_idx_raw]
+        self.trans_buffer = deque(maxlen=self.trans_buffer_size)
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        for state, action, reward, next_state, done in zip(
+            self.sorted_observations_raw,
+            self.sorted_actions_raw,
+            self.sorted_rewards_raw,
+            self.sorted_next_observations_raw,
+            self.sorted_terminals_raw
+        ):
+            e = self.experience(state, action, reward, next_state, done)
+            self.trans_buffer.append(e)
             
         
         ## segment
@@ -128,26 +128,26 @@ class ReplayBuffer:
         self.values_segmented = self.values_segmented[sorted_index]
         self.trajectory_returns = self.trajectory_returns[sorted_index]
         
-        #TODO: add transitions from top trajectories into the transition level replay buffer
-        self.trans_buffer = deque(maxlen=self.trans_buffer_size)
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
-        self.sorted_observations = self.observations_segmented.reshape(-1, self.observation_dim)
-        self.sorted_actions = self.actions_segmented.reshape(-1, self.action_dim)
-        self.sorted_rewards = self.rewards_segmented.reshape(-1, 1)
-        self.sorted_next_observations = np.roll(self.sorted_observations, -1, axis=0)
-        self.sorted_dones = np.zeros_like(self.sorted_rewards)
-        end_indices = np.cumsum(self.path_lengths) - 1
-        self.sorted_dones[end_indices, 0] = 1
+        # #TODO: add transitions from top trajectories into the transition level replay buffer
+        # self.trans_buffer = deque(maxlen=self.trans_buffer_size)
+        # self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        # self.sorted_observations = self.observations_segmented.reshape(-1, self.observation_dim)
+        # self.sorted_actions = self.actions_segmented.reshape(-1, self.action_dim)
+        # self.sorted_rewards = self.rewards_segmented.reshape(-1, 1)
+        # self.sorted_next_observations = np.roll(self.sorted_observations, -1, axis=0)
+        # self.sorted_dones = np.zeros_like(self.sorted_rewards)
+        # end_indices = np.cumsum(self.path_lengths) - 1
+        # self.sorted_dones[end_indices, 0] = 1
         
-        for state, action, reward, next_state, done in zip(
-            self.sorted_observations[:self.trans_buffer_size],
-            self.sorted_actions[:self.trans_buffer_size],
-            self.sorted_rewards[:self.trans_buffer_size],
-            self.sorted_next_observations[:self.trans_buffer_size],
-            self.sorted_dones[:self.trans_buffer_size]
-        ):
-            e = self.experience(state, action, reward, next_state, done)
-            self.trans_buffer.append(e)
+        # for state, action, reward, next_state, done in zip(
+        #     self.sorted_observations[:self.trans_buffer_size],
+        #     self.sorted_actions[:self.trans_buffer_size],
+        #     self.sorted_rewards[:self.trans_buffer_size],
+        #     self.sorted_next_observations[:self.trans_buffer_size],
+        #     self.sorted_dones[:self.trans_buffer_size]
+        # ):
+        #     e = self.experience(state, action, reward, next_state, done)
+        #     self.trans_buffer.append(e)
         
         
         keep_idx = []
@@ -239,7 +239,7 @@ class ReplayBuffer:
                       new_trajectories: List):
         
         
-        
+        num_new_trajectories = len(new_trajectories)
         new_path_lengths = np.array([traj["path_length"] for traj in new_trajectories])
         new_trajectory_returns = np.array([traj["total_return"] for traj in new_trajectories])
         new_observations = np.stack([traj["observations"] for traj in new_trajectories], axis=0)
