@@ -329,7 +329,9 @@ def main(hydra_cfg):
             batch = next(dataloader)
         except StopIteration:
             logger.info(f"Rollout a new trajectory")
+            learner.mtm.eval()
             explore_log = buffer.online_rollout(learner.action_sample)
+            learner.mtm.train()
             episode += 1
             dataloader = iter(buffer)
             batch = next(dataloader)
@@ -416,26 +418,12 @@ def main(hydra_cfg):
 
             val_dict = learner.evaluate(num_episodes=10)
 
-            log_dict.update(val_dict)
             learner.mtm.train()
             learner.critic1.train()
             learner.critic2.train()
             learner.value.train()
             val_dict["time/eval_step_time"] = time.time() - start_time
-            
-            plt.figure()
-            plt.hist(buffer.p_return_list, bins=list(range(0,3501,500)), color='blue', edgecolor='black')
-            plt.title('Histogram of Return')
-            plt.xlabel('Value')
-            plt.ylabel('Frequency')
-            log_dict["eval/new_trajectory_return"] = wandb.Image(plt)
-            
-            plt.figure()
-            plt.hist(buffer.p_length_list, bins=list(range(0,1001,200)), color='blue', edgecolor='black')
-            plt.title('Histogram of Length')
-            plt.xlabel('Value')
-            plt.ylabel('Frequency')
-            log_dict["eval/new_trajectory_length"] = wandb.Image(plt)
+            log_dict.update(val_dict)
             
             wandb_logger.log(log_dict, step=step)
         
