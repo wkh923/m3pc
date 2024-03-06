@@ -155,6 +155,7 @@ class RunConfig:
     """The number of candidates retained during beam search"""
 
     trans_buffer_update: bool = True  # [True, False]
+    trans_buffer_init_method: str = "top_trans"  # ["top_trans", "top_traj"]
 
     critic_update: bool = True  # [True, False]
 
@@ -322,20 +323,21 @@ def main(hydra_cfg):
                 critic_log = learner.critic_update(experiences)
                 value_log = learner.value_update(experiences)
                 learner.critic_target_soft_update()
+                
             log_dict.update(critic_log)
             log_dict.update(value_log)
-
+        
         try:
             batch = next(dataloader)
         except StopIteration:
             logger.info(f"Rollout a new trajectory")
             learner.mtm.eval()
-            explore_log = buffer.online_rollout(learner.action_sample)
+            explore_dict = buffer.online_rollout(learner.action_sample)
             learner.mtm.train()
             episode += 1
             dataloader = iter(buffer)
             batch = next(dataloader)
-            log_dict.update(explore_log)
+            wandb_logger.log(explore_dict, step=step)
 
         mtm_log = learner.mtm_update(batch, data_shapes, discrete_map)
         log_dict.update(mtm_log)
@@ -423,10 +425,51 @@ def main(hydra_cfg):
             learner.critic2.train()
             learner.value.train()
             val_dict["time/eval_step_time"] = time.time() - start_time
+
+            explore_return_hist = np.histogram(
+                buffer.p_return_list, bins=list(range(0, 3501, 50))
+            )
+            explore_length_hist = np.histogram(
+                buffer.p_length_list, bins=list(range(0, 1001, 20))
+            )
+
+            log_dict["explore/explore_return_hist"] = wandb.Histogram(
+                np_histogram=explore_return_hist
+            )
+            log_dict["explore/explore_length_hist"] = wandb.Histogram(
+                np_histogram=explore_length_hist
+            )
+
+            # reset record of return and length, to record the new trajectory's return and length distribution
+            buffer.p_return_list.clear()
+            buffer.p_length_list.clear()
+
+            # plt.figure()
+            # plt.hist(
+            #     buffer.p_return_list,
+            #     bins=list(range(0, 3501, 500)),
+            #     color="blue",
+            #     edgecolor="black",
+            # )
+            # plt.title("Histogram of Return")
+            # plt.xlabel("Value")
+            # plt.ylabel("Frequency")
+            # log_dict["eval/new_trajectory_return"] = wandb.Image(plt)
+
+            # plt.figure()
+            # plt.hist(
+            #     buffer.p_length_list,
+            #     bins=list(range(0, 1001, 200)),
+            #     color="blue",
+            #     edgecolor="black",
+            # )
+            # plt.title("Histogram of Length")
+            # plt.xlabel("Value")
+            # plt.ylabel("Frequency")
+            # log_dict["eval/new_trajectory_length"] = wandb.Image(plt)
             log_dict.update(val_dict)
-            
             wandb_logger.log(log_dict, step=step)
-        
+
         log_dict["time/iteration_step_time"] = time.time() - B
 
         if random.randint(0, cfg.log_every) == 0:
