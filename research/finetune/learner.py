@@ -209,7 +209,7 @@ class Learner(object):
                 raw_loss = nn.MSELoss(reduction="none")(pred, target)
             
             # raw_loss shape = [batch_size, T, P, 1]
-            loss = raw_loss.sum(dim=(2, 3)).mean()
+            loss = raw_loss.mean(dim=(2, 3)).mean()
             masked_c_loss = (
                 (raw_loss * mask[None, :, :, None]).sum(dim=(1, 2, 3)) / mask.sum()
             ).mean()

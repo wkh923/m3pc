@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace, field
 from typing import Any, Callable, Dict, Sequence, Tuple, List, Optional
 
 import hydra
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
@@ -131,10 +132,10 @@ class RunConfig:
     """uniform: sample the trajactories randomly;
     prob: assign higher sample probability to trajectories with higher return"""
     
-    mask_ratio: int = 0.5
+    mask_ratio: Tuple = (0.5,)
     """The ratio of masked token during MTM training phase"""
     
-    p_weights: List[int] = field(default_factory=lambda: [0.1, 0.1, 0.7, 0.1])
+    p_weights: Tuple = (0.1, 0.1, 0.7, 0.1)
     """The probability of different madalities to be autoregressive"""
     
     critic_hidden_size: int = 256
@@ -407,7 +408,22 @@ def main(hydra_cfg):
             learner.critic2.train()
             learner.value.train()
             val_dict["time/eval_step_time"] = time.time() - start_time
-            wandb_logger.log(val_dict, step=step)
+            
+            plt.figure()
+            plt.hist(buffer.p_return_list, bins=list(range(0,3500,500)), color='blue', edgecolor='black')
+            plt.title('Histogram of Return')
+            plt.xlabel('Value')
+            plt.ylabel('Frequency')
+            log_dict["eval/new_trajectory_return"] = wandb.Image(plt)
+            
+            plt.figure()
+            plt.hist(buffer.p_length_list, bins=list(range(0,1000,200)), color='blue', edgecolor='black')
+            plt.title('Histogram of Length')
+            plt.xlabel('Value')
+            plt.ylabel('Frequency')
+            log_dict["eval/new_trajectory_length"] = wandb.Image(plt)
+            
+            wandb_logger.log(log_dict, step=step)
         
         log_dict["time/iteration_step_time"] = time.time() - B
         

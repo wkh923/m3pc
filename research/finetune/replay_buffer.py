@@ -11,6 +11,7 @@ from research.mtm.datasets.base import DataStatistics
 from research.mtm.datasets.sequence_dataset import Trajectory, segment
 from research.mtm.tokenizers.base import TokenizerManager
 from research.finetune.masks import *
+from research.logger import logger
 
 class ReplayBuffer:
     """For trajectory transformer
@@ -173,6 +174,8 @@ class ReplayBuffer:
         self.values_segmented = self.values_segmented[keep_idx]
         self.trajectory_returns = self.trajectory_returns[keep_idx]
         self.p = self.trajectory_returns / self.trajectory_returns.sum(axis=0)
+        self.p_length_list = []
+        self.p_return_list = []
         
     def online_rollout(self,
                        sample_func: Callable, 
@@ -218,23 +221,27 @@ class ReplayBuffer:
             
             current_trajectory["total_return"] = current_trajectory["rewards"].sum()
             
-            # if current_trajectory["path_length"] >= self.path_lengths_avg:
-            new_trajectories.append(current_trajectory)
+            logger.info(f"trajectory length: {current_trajectory['path_length']}")
+            logger.info(f"trajectory return: {current_trajectory['total_return']}")
+            self.p_length_list.append(current_trajectory["path_length"])
+            self.p_return_list.append(current_trajectory["total_return"])
+            
+            if current_trajectory["path_length"] >= self.path_lengths_avg:
+                new_trajectories.append(current_trajectory)
         
-            if len(new_trajectories) > 0:
-                self.update_buffer(new_trajectories)
+        if len(new_trajectories) > 0:
+            self.update_buffer(new_trajectories)
+            
     
     
     
     def update_buffer(self,
                       new_trajectories: List):
         
-        num_new_trajectories = len(new_trajectories)
+        
         
         new_path_lengths = np.array([traj["path_length"] for traj in new_trajectories])
-        print("new_path_lengths", new_path_lengths)
         new_trajectory_returns = np.array([traj["total_return"] for traj in new_trajectories])
-        print("new_trajectory_returns", new_trajectory_returns)
         new_observations = np.stack([traj["observations"] for traj in new_trajectories], axis=0)
         new_actions = np.stack([traj["actions"] for traj in new_trajectories], axis=0)
         new_values = np.stack([traj["values"] for traj in new_trajectories], axis=0)

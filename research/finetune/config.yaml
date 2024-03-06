@@ -81,10 +81,10 @@ finetune_args:
     clip_min: -1.0
     clip_max: 1.0
     tau: 5e-3
-    select_mode: "uniform"
+    select_mode: 'prob'
 
     #mask
-    mask_ratio: 0.5
+    mask_ratio: [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
     p_weights: [0.2, 0.1, 0.6, 0.1]
 
     critic_hidden_size: 256
