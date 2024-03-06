@@ -291,9 +291,9 @@ def main(hydra_cfg):
         log_dict["train/episodes"] = episode
         
         start_time = time.time()
-        
+        experiences = buffer.trans_sample()
         for critic_iter in range(cfg.v_iter_per_mtm):
-            experiences = buffer.trans_sample()
+            # experiences = buffer.trans_sample()
             critic_log = learner.critic_update(experiences)
             value_log = learner.value_update(experiences)
             learner.critic_target_soft_update()
@@ -410,14 +410,14 @@ def main(hydra_cfg):
             val_dict["time/eval_step_time"] = time.time() - start_time
             
             plt.figure()
-            plt.hist(buffer.p_return_list, bins=list(range(0,3500,500)), color='blue', edgecolor='black')
+            plt.hist(buffer.p_return_list, bins=list(range(0,3501,500)), color='blue', edgecolor='black')
             plt.title('Histogram of Return')
             plt.xlabel('Value')
             plt.ylabel('Frequency')
             log_dict["eval/new_trajectory_return"] = wandb.Image(plt)
             
             plt.figure()
-            plt.hist(buffer.p_length_list, bins=list(range(0,1000,200)), color='blue', edgecolor='black')
+            plt.hist(buffer.p_length_list, bins=list(range(0,1001,200)), color='blue', edgecolor='black')
             plt.title('Histogram of Length')
             plt.xlabel('Value')
             plt.ylabel('Frequency')
