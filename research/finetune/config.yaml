@@ -1,4 +1,4 @@
-
+local_cuda_rank: 0
 # because working dictionary is "....../mtm/outputs/2024-03-05/13-19-37"
 pretrain_model_path: ../../../outputs/mtm_mae/hopper_medium_decoder1/model_140010.pt
 pretrain_critic1_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic1.pt

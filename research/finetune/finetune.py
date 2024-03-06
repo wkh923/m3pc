@@ -161,7 +161,7 @@ class RunConfig:
 
 def main(hydra_cfg):
     dp: DistributedParams = get_distributed_params()
-    torch.cuda.set_device(dp.local_rank)
+    torch.cuda.set_device(hydra_cfg.local_cuda_rank)
 
     cfg: RunConfig = hydra.utils.instantiate(hydra_cfg.finetune_args)
     model_config = hydra.utils.instantiate(hydra_cfg.model_config)
