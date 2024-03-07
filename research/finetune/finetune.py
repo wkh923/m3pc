@@ -155,7 +155,7 @@ class RunConfig:
     """The number of candidates retained during beam search"""
 
     trans_buffer_update: bool = True  # [True, False]
-    trans_buffer_init_method: str = "top_trans"  # ["top_trans", "top_traj"]
+    trans_buffer_init_method: str = "top_trans"  # ["top_trans", "top_traj", "random"]
 
     critic_update: bool = True  # [True, False]
 

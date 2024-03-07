@@ -60,7 +60,8 @@ class ReplayBuffer:
         assert self.cfg.trans_buffer_init_method in [
             "top_trajs",
             "top_trans",
-        ], TypeError("Unsupported trans_buffer_init_method")
+            "random"
+        ], TypeError("Please specify a valid transition replay buffer init method")
 
         if discount > 1.0:
             self.discount = 1.0
@@ -131,7 +132,18 @@ class ReplayBuffer:
             ):
                 e = self.experience(state, action, reward, next_state, done)
                 self.trans_buffer.append(e)
-        elif self.cfg.trans_buffer_init_method == "top_trajs":
+        
+
+            for state, action, reward, next_state, done in zip(
+                self.sorted_observations[: self.trans_buffer_size],
+                self.sorted_actions[: self.trans_buffer_size],
+                self.sorted_rewards[: self.trans_buffer_size],
+                self.sorted_next_observations[: self.trans_buffer_size],
+                self.sorted_dones[: self.trans_buffer_size],
+            ):
+                e = self.experience(state, action, reward, next_state, done)
+                self.trans_buffer.append(e)
+        elif self.cfg.trans_buffer_init_method == "random":
             # add transitions from top trajectories into the transition level replay buffer
             self.trans_buffer = deque(maxlen=self.trans_buffer_size)
             self.experience = namedtuple(
@@ -149,16 +161,8 @@ class ReplayBuffer:
             self.sorted_dones = np.zeros_like(self.sorted_rewards)
             end_indices = np.cumsum(self.path_lengths) - 1
             self.sorted_dones[end_indices, 0] = 1
-
-            for state, action, reward, next_state, done in zip(
-                self.sorted_observations[: self.trans_buffer_size],
-                self.sorted_actions[: self.trans_buffer_size],
-                self.sorted_rewards[: self.trans_buffer_size],
-                self.sorted_next_observations[: self.trans_buffer_size],
-                self.sorted_dones[: self.trans_buffer_size],
-            ):
-                e = self.experience(state, action, reward, next_state, done)
-                self.trans_buffer.append(e)
+        else: 
+            pass
 
         #  assert len(set(self.path_lengths)) == 1
 
@@ -172,7 +176,7 @@ class ReplayBuffer:
         self.rewards_segmented = self.rewards_segmented[sorted_index]
         self.values_segmented = self.values_segmented[sorted_index]
         self.trajectory_returns = self.trajectory_returns[sorted_index]
-
+        
         keep_idx = []
         traj_count = 0
         for idx, pl in enumerate(self.path_lengths):
@@ -199,6 +203,25 @@ class ReplayBuffer:
         self.p = self.trajectory_returns / self.trajectory_returns.sum(axis=0)
         self.p_length_list = []
         self.p_return_list = []
+        
+        if self.cfg.trans_buffer_init_method == "top_trajs":
+            # add transitions from top trajectories into the transition level replay buffer
+            self.trans_buffer = deque(maxlen=self.trans_buffer_size)
+            self.experience = namedtuple(
+                "Experience",
+                field_names=["state", "action", "reward", "next_state", "done"],
+            )
+            self.sorted_observations = self.observations_segmented.reshape(
+                -1, self.observation_dim
+            )
+            self.sorted_actions = self.actions_segmented.reshape(-1, self.action_dim)
+            self.sorted_rewards = self.rewards_segmented.reshape(-1, 1)
+            self.sorted_next_observations = np.roll(
+                self.sorted_observations, -1, axis=0
+            )
+            self.sorted_dones = np.zeros_like(self.sorted_rewards)
+            end_indices = np.cumsum(self.path_lengths) - 1
+            self.sorted_dones[end_indices, 0] = 1
 
     def online_rollout(
         self,
