@@ -59,7 +59,7 @@ finetune_args:
     
     #train
     print_every: 50
-    log_every: 50
+    log_every: 100
     eval_every: 2000
     save_every: 40000
     
