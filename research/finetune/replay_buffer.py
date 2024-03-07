@@ -218,6 +218,9 @@ class ReplayBuffer:
         """
 
         assert num_trajectories <= self.traj_buffer_size
+        assert (
+            num_trajectories == 1
+        ), "Only support one trajectory collection! for more than one, equal to lower the update frequency for each online rollout."
         new_trajectories = []
 
         for _ in range(num_trajectories):
@@ -285,10 +288,11 @@ class ReplayBuffer:
                 "explore/rollout_return_mean": explore_return_mean,
             }
 
+        # TODO: assume only one trajectory is collected
         else:
             log_dict = {
-                "explore/rollout_steps_mean": 0,
-                "explore/rollout_return_mean": 0,
+                "explore/rollout_steps_mean": current_trajectory["path_length"],
+                "explore/rollout_return_mean": current_trajectory["total_return"],
             }
             print("No new trajectories collected, because they are too short.")
         return log_dict
