@@ -194,6 +194,7 @@ class Learner(object):
 
     def action_sample(self, sequence_history, percentage=1.0, horizon=4, plan=True):
 
+        horizon = self.cfg.horizon
         end_idx = sequence_history["path_length"]
         if end_idx + horizon < self.cfg.traj_length:
             horizon = self.cfg.traj_length - end_idx

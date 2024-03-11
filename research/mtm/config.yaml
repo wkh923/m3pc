@@ -47,8 +47,8 @@ args:
 
 
 wandb:
-  project: worldgpt
-  entity: "wkh923"
+  project: pretrain
+  entity: "f69"
   #resume: null
   resume: allow
 

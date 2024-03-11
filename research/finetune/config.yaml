@@ -13,7 +13,7 @@ pretrain_dataset:
     seq_steps: ???
     env_name: hopper-medium-v2
     use_reward: true
-    seed: 0
+    seed: 1000
     discount: 1.5
     train_val_split: 0.95
 
@@ -58,7 +58,7 @@ finetune_args:
     v_iter_per_mtm: 10
     
     #train
-    print_every: 50
+    print_every: 100
     log_every: 100
     eval_every: 2000
     save_every: 40000
@@ -72,6 +72,7 @@ finetune_args:
     #plan 
     plan: True
     beam_width: 128
+    horizon: 4
     action_samples: 5
     temperature: 1.0
     action_noise_std: 0.1

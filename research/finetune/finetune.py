@@ -153,6 +153,9 @@ class RunConfig:
 
     beam_width: int = 256
     """The number of candidates retained during beam search"""
+    
+    horizon: int = 4
+    """The horizon for planning, horizon=1 means critic guided search"""
 
     trans_buffer_update: bool = True  # [True, False]
     trans_buffer_init_method: str = "top_trans"  # ["top_trans", "top_traj", "random"]
