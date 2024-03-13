@@ -143,10 +143,11 @@ def make_plots_with_masks(
                             vmax + y_range / 5,
                         )
                         ax.legend()
-                        eval_logs[
-                            f"{eval_name}/batch={batch_idx}|{i}_{k}"
-                        ] = wandb.Image(ph.plot_as_image(fig))
+                        eval_logs[f"{eval_name}/batch={batch_idx}|{i}_{k}"] = (
+                            wandb.Image(ph.plot_as_image(fig))
+                        )
 
+                    # plot logits for discrete data
                     if i < logit_traj.shape[1]:
                         logits = torch.tensor(logit_traj[:, i, :])
                         probs = torch.softmax(
@@ -265,25 +266,25 @@ class MTM(nn.Module):
         )
 
         self.output_head_dict = nn.ModuleDict()
-        
+
         for key, shape in data_shapes.items():
-            
+
             if discrete_map[key]:
                 self.output_head_dict[key] = nn.Sequential(
-                nn.LayerNorm(self.n_embd),
-                nn.Linear(self.n_embd, self.n_embd),
-                nn.GELU(),
-                nn.Linear(self.n_embd, shape[-1]),
-                nn.LogSoftmax(dim=-1)
-            )
+                    nn.LayerNorm(self.n_embd),
+                    nn.Linear(self.n_embd, self.n_embd),
+                    nn.GELU(),
+                    nn.Linear(self.n_embd, shape[-1]),
+                    nn.LogSoftmax(dim=-1),
+                )
             else:
                 self.output_head_dict[key] = nn.Sequential(
-                nn.LayerNorm(self.n_embd),
-                nn.Linear(self.n_embd, self.n_embd),
-                nn.GELU(),
-                nn.Linear(self.n_embd, shape[-1]),
-            )
-        
+                    nn.LayerNorm(self.n_embd),
+                    nn.Linear(self.n_embd, self.n_embd),
+                    nn.GELU(),
+                    nn.Linear(self.n_embd, shape[-1]),
+                )
+
         pos_embed = get_1d_sincos_pos_embed_from_grid(self.n_embd, self.max_len)
         pe = torch.from_numpy(pos_embed).float()[None, :, None, :] / 2.0
         self.register_buffer("pos_embed", pe)
@@ -325,7 +326,7 @@ class MTM(nn.Module):
                     mean = target.mean(dim=-1, keepdim=True)
                     var = target.var(dim=-1, keepdim=True)
                     target_s = (target - mean) / (var + 1.0e-6) ** 0.5
-                
+
                 raw_loss = nn.MSELoss(reduction="none")(pred, target)
 
             # raw_loss shape = [batch_size, T, P, 1]
@@ -354,7 +355,7 @@ class MTM(nn.Module):
             loss = torch.sum(torch.stack(list(losses.values())))
         else:
             loss = torch.sum(torch.stack([losses[key] for key in loss_keys]))
-        
+
         return loss, losses, masked_losses, masked_c_losses
 
     def _index(self, x, use_mask):
@@ -536,7 +537,7 @@ class MTM(nn.Module):
             p = self.data_shapes[k][0]
             extracted_trajectories[k] = output_head(traj_segment.reshape(b, -1, p, f))
             pos += t_p
-            
+
         return extracted_trajectories
 
     def mask_git_forward(self, trajectories, masks, temperature=1.0, ratio=1.0):

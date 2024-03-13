@@ -85,7 +85,7 @@ def eval_fd(
         "states": obs_mask1,
         "actions": actions_mask1,
         "returns": returns_mask,
-        "rewards": rewards_mask
+        "rewards": rewards_mask,
     }
 
     predictions = model.mask_git_forward(
@@ -126,7 +126,7 @@ def eval_id(
         "states": obs_mask1,
         "actions": actions_mask1,
         "returns": returns_mask,
-        "rewards": rewards_mask
+        "rewards": rewards_mask,
     }
 
     predictions = model.mask_git_forward(
@@ -252,23 +252,26 @@ def create_eval_logs_states_actions_images(
     device = trajectories["states"].device
     seq_len = trajectories["states"].shape[1]
 
-    # Given initial state and all actions. Predict future states.
     obs_mask1 = np.ones(seq_len)
     obs_mask1[1:] = 0
     actions_mask1 = np.ones(seq_len)
 
+    # given goal state and all actions. Predict other states to reach goal state.
     obs_mask2 = np.ones(seq_len)
     obs_mask2[1:-1] = 0
     actions_mask2 = np.zeros(seq_len)
 
+    # given goal state and all actions. Predict other states to reach goal state. but leave state available every 16 steps
     obs_mask3 = np.ones(seq_len)
     obs_mask3[1:-1] = 0
     obs_mask3[::16] = 1
     actions_mask3 = np.zeros(seq_len)
 
+    # Given all states. Predict ALL actions.
     obs_mask4 = np.ones(seq_len)
     actions_mask4 = np.zeros(seq_len)
 
+    # Random masks
     rnd = np.random.RandomState(0)
     obs_mask5 = create_random_mask(seq_len, 0.15, device, rnd).detach().cpu().numpy()
     actions_mask5 = (

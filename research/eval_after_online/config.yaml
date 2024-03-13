@@ -1,0 +1,107 @@
+local_cuda_rank: 0
+# because working dictionary is "....../mtm/outputs/2024-03-05/13-19-37"
+pretrain_model_path: ../../../outputs/mtm_mae/hopper_medium_decoder1/model_140010.pt
+pretrain_critic1_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic1.pt
+pretrain_critic2_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic2.pt
+pretrain_value_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2value.pt
+pretrain_args:
+    env_name: hopper-medium-v2
+    traj_length: 8
+
+pretrain_dataset:
+    _target_: research.mtm.datasets.d4rl_ds.get_datasets
+    seq_steps: ???
+    env_name: hopper-medium-v2
+    use_reward: true
+    seed: 0
+    discount: 1.5
+    train_val_split: 0.95
+
+tokenizers:
+    states:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    actions:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    returns:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    rewards:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+
+
+model_config:
+    _target_: research.mtm.models.mtm_model.MTMConfig
+    norm: "none"
+    n_embd: 512
+    n_enc_layer: 2
+    n_dec_layer: 1
+    n_head: 4
+    dropout: 0.1
+    loss_keys: null
+    latent_dim: null
+
+finetune_args: 
+    _target_: research.finetune.finetune.RunConfig
+    discount: 0.99
+    seed: 1000
+    traj_batch_size: 1024
+    trans_batch_size: 4096
+    warmup_steps: 1000
+    num_train_steps: 90000
+    learning_rate: 1e-4
+    critic_lr: 1e-4
+    v_lr: 1e-4
+    weight_decay: 5e-3
+    device: cuda
+    use_masked_loss: False
+    loss_weight: {"actions":  1.0, "states": 1.0, "returns": 1.0, "rewards": 1.0}
+    mtm_iter_per_rollout: 200
+    v_iter_per_mtm: 10
+    
+    #train
+    print_every: 50
+    log_every: 100
+    eval_every: 2000
+    save_every: 40000
+    
+    # #debug
+    # print_every: 1
+    # log_every: 1
+    # eval_every: 1
+    # save_every: 1
+    
+    #plan 
+    plan: True
+    beam_width: 128
+    action_samples: 5
+    temperature: 1.0
+    action_noise_std: 0.1
+
+    #replay buffer
+    traj_buffer_size: 1000
+    trans_buffer_size: 200000
+    trans_buffer_update: True
+    trans_buffer_init_method: "top_trans"
+    pretrain_discount: 1.5
+    clip_min: -1.0
+    clip_max: 1.0
+    tau: 5e-3
+    select_mode: 'prob'
+
+    #mask
+    mask_ratio: [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
+    p_weights: [0.2, 0.1, 0.6, 0.1]
+
+    critic_hidden_size: 256
+    critic_update: True # [True, False]
+
+
+wandb:
+    project: offline_eval
+    entity: f69
+    resume: null
+    experiment_name: hopper
+
+hydra:
+    job:
+        name: finetune
+        chdir: True
