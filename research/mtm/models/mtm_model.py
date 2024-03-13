@@ -506,7 +506,9 @@ class MTM(nn.Module):
             batch_size = traj.shape[0]
             assert len(ids_restore[k].shape) == 1
             num_mask_tokens = ids_restore[k].shape[0] - keep_lengths[k]
-            mask_tokens = self.mask_token_dict[k].repeat(batch_size, num_mask_tokens, 1)
+            mask_tokens = self.mask_token_dict[k].repeat(
+                batch_size, num_mask_tokens, 1
+            )  # only in decoder the mask tokens are recovered
             x_ = torch.cat([traj, mask_tokens], dim=1)
             assert (
                 ids_restore[k].shape[0] == x_.shape[1]

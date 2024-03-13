@@ -61,6 +61,7 @@ def make_plots_with_masks(
     trajectories: Dict[str, torch.Tensor],
     tokenizer_manager: TokenizerManager,
     masks_list: List[Dict[str, torch.Tensor]],
+    RTG_ratio: List[float],
     prefixs: List[str],
     batch_size: int = 1,
     max_n_plots: int = 3,
@@ -76,23 +77,17 @@ def make_plots_with_masks(
         predictions = predict_fn(encoded_trajectories, masks)
         decoded_trajs = tokenizer_manager.decode(predictions)
 
-        # mse_loss = 0
-        # for k, v in decoded_trajs.items():
-        #     _mse = F.mse_loss(
-        #         v.to(torch.float32), trajectories[k].to(torch.float32)
-        #     ).item()
-        #     eval_logs[f"{eval_name}/mse_{k}"] = _mse
-        #     mse_loss += _mse
-        # eval_logs[f"{eval_name}/mse_sum"] = mse_loss
+        pertubed_trajectories_list = []
 
-        # mse_loss = 0
-        # for k, v in decoded_gt_trajectories.items():
-        #     _mse = F.mse_loss(
-        #         v.to(torch.float32), trajectories[k].to(torch.float32)
-        #     ).item()
-        #     eval_logs[f"{eval_name}/lower_bound_mse_{k}"] = _mse
-        #     mse_loss += _mse
-        # eval_logs[f"{eval_name}/lower_bound_mse_sum"] = mse_loss
+        for RGT_scale in RTG_ratio:
+            pertubed_trajectories = trajectories.copy()
+            pertubed_trajectories["returns"] = trajectories["returns"] * RGT_scale
+            encoded_pertubed_trajectories = tokenizer_manager.encode(
+                pertubed_trajectories
+            )
+            pertubed_predictions = predict_fn(encoded_pertubed_trajectories, masks)
+            decoded_pertubed_trajs = tokenizer_manager.decode(pertubed_predictions)
+            pertubed_trajectories_list.append(decoded_pertubed_trajs)
 
         print(" ==== batch size ==== :", batch_size)
 
@@ -110,15 +105,29 @@ def make_plots_with_masks(
                 .cpu()
                 .numpy()
             )
-            print("i_mse size", i_mse.shape)
+            # print("i_mse size", i_mse.shape)
             if k + "/" + eval_name not in eval_logs:
                 eval_logs[k + "/" + eval_name] = np.zeros((batch_size, 8))
                 eval_logs[k + "/" + eval_name] = i_mse
+            for pertube_scale, pertubed_trajs in zip(
+                RTG_ratio, pertubed_trajectories_list
+            ):
+                p_mse = (
+                    F.mse_loss(decoded_trajs[k], pertubed_trajs[k], reduction="none")
+                    .mean(dim=(-1))
+                    .cpu()
+                    .numpy()
+                )
+                log_name = k + "/" + eval_name + f"noise_{pertube_scale}"
+                if log_name not in eval_logs:
+                    eval_logs[log_name] = np.zeros((batch_size, 8))
+                    eval_logs[log_name] = p_mse
+
     for k, v in eval_logs.items():
         with ph.plot_context() as (fig, ax):
             # Transpose data to match the expected shape for boxplot
             # Each row now represents a dataset for one box
-            ax.boxplot(v)
+            ax.boxplot(v, showfliers=False)
             ax.set_xlabel("Traj Index")
             ax.set_ylabel("SME Loss")
             ax.set_title(k)
@@ -128,6 +137,21 @@ def make_plots_with_masks(
 
             # Log the plot to wandb
             wandb.log({plot_name: wandb.Image(ph.plot_as_image(fig))})
+        # for pertube_scale in RTG_ratio:
+        #     log_name = k + f"noise_{pertube_scale}"
+        #     with ph.plot_context() as (fig, ax):
+        #         # Transpose data to match the expected shape for boxplot
+        #         # Each row now represents a dataset for one box
+        #         ax.boxplot(eval_logs[log_name])
+        #         ax.set_xlabel("Traj Index")
+        #         ax.set_ylabel("SME Loss")
+        #         ax.set_title(log_name)
+
+        #         # Create a custom name for this plot in your wandb logs
+        #         plot_name = log_name
+
+        #         # Log the plot to wandb
+        #         wandb.log({plot_name: wandb.Image(ph.plot_as_image(fig))})
 
     return
 
@@ -179,11 +203,13 @@ def create_eval_logs_states_actions(
         "fd_in7_out2",
         "fd_in8_out1",
     ]
+    RTG_ratio = [0.2, 0.4, 0.7, 2.0, 4.0]
     return make_plots_with_masks(
         predict_fn,
         trajectories,
         tokenizer_manager,
         masks_list,
+        RTG_ratio,
         prefixs,
         max_n_plots=1,
         batch_size=batch,
