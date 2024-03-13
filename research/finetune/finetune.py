@@ -151,9 +151,13 @@ class RunConfig:
     plan: bool = True
     """Do planning when rolling out"""
 
+    plan_guidance: str = "mtm_critic"
+    exploration_noise_std: float = 0.1
+    critic_noise_std: float = 0.1
+
     beam_width: int = 256
     """The number of candidates retained during beam search"""
-    
+
     horizon: int = 4
     """The horizon for planning, horizon=1 means critic guided search"""
 
@@ -326,10 +330,10 @@ def main(hydra_cfg):
                 critic_log = learner.critic_update(experiences)
                 value_log = learner.value_update(experiences)
                 learner.critic_target_soft_update()
-                
+
             log_dict.update(critic_log)
             log_dict.update(value_log)
-        
+
         try:
             batch = next(dataloader)
         except StopIteration:

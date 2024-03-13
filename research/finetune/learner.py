@@ -131,6 +131,7 @@ class Learner(object):
                         :, self.cfg.traj_length - h : i, :
                     ].sum(dim=1)
                 else:
+                    # first step of planning, no rewards, only consider value
                     copied_cum_rewards = torch.zeros_like(
                         trajectories["rewards"][:, i, :]
                     )
@@ -192,6 +193,124 @@ class Learner(object):
             best_action = trajectories["actions"][0, self.cfg.traj_length - h, :]
             return sampled_action, best_action
 
+    def filtered_uniform(self, trajectory: Dict[str, torch.Tensor]):
+
+        trajectories = {
+            k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
+        }
+        with torch.no_grad():
+            encode = self.tokenizer_manager.encode(trajectories)
+            torch_rcbc_mask = create_rcbc_mask(
+                self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - 1
+            )
+            copied_states = trajectories["states"][
+                :, self.cfg.traj_length - 1, :
+            ].repeat_interleave(
+                self.cfg.action_samples, dim=0
+            )  # [beam_width*n, obs_dim]
+            # first step of planning, no rewards, only consider value
+            copied_cum_rewards = torch.zeros_like(
+                trajectories["rewards"][:, self.cfg.traj_length - 1, :]
+            )
+            copied_cum_rewards = copied_cum_rewards.repeat_interleave(
+                self.cfg.action_samples, dim=0
+            )  # [beam_width*n, 1]
+            action_mean = self.tokenizer_manager.decode(
+                self.mtm(encode, torch_rcbc_mask)
+            )["actions"][:, self.cfg.traj_length - 1, :]
+            sampled_actions_mean = action_mean.repeat_interleave(
+                self.cfg.action_samples, dim=0
+            )  # [beam_width*n, action_dim]
+            sampled_actions = (
+                sampled_actions_mean
+                + self.cfg.action_noise_std
+                * torch.randn(
+                    sampled_actions_mean.shape, device=sampled_actions_mean.device
+                )
+            )
+            expected_return = copied_cum_rewards + torch.minimum(
+                self.critic1(copied_states, sampled_actions),
+                self.critic2(copied_states, sampled_actions),
+            )
+            sorted_return, sorted_idx = torch.sort(
+                expected_return.squeeze(-1), descending=True
+            )
+            trajectories["actions"][:, self.cfg.traj_length - 1, :] = sampled_actions[
+                sorted_idx[: self.cfg.beam_width]
+            ]
+
+            max_return = sorted_return.max(0)[0]
+            # uniform sample from beam_width
+            score = torch.ones(self.cfg.beam_width, device=self.cfg.device)
+            sample_idx = torch.multinomial(score, 1)[0]
+            sampled_action = trajectories["actions"][
+                sample_idx, self.cfg.traj_length - 1, :
+            ]
+            best_action = trajectories["actions"][0, self.cfg.traj_length - 1, :]
+            return sampled_action, best_action
+
+    def critic_planning(self, trajectory: Dict[str, torch.Tensor]):
+
+        trajectories = {
+            k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
+        }
+        with torch.no_grad():
+            encode = self.tokenizer_manager.encode(trajectories)
+            torch_rcbc_mask = create_rcbc_mask(
+                self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - 1
+            )
+            copied_states = trajectories["states"][
+                :, self.cfg.traj_length - 1, :
+            ].repeat_interleave(self.cfg.action_samples, dim=0)
+
+            copied_states += self.cfg.critic_noise_std * torch.randn(
+                copied_states.shape, device=copied_states.device
+            )
+            # [beam_width*n, obs_dim]
+            # first step of planning, no rewards, only consider value
+            copied_cum_rewards = torch.zeros_like(
+                trajectories["rewards"][:, self.cfg.traj_length - 1, :]
+            )
+            copied_cum_rewards = copied_cum_rewards.repeat_interleave(
+                self.cfg.action_samples, dim=0
+            )  # [beam_width*n, 1]
+            action_mean = self.tokenizer_manager.decode(
+                self.mtm(encode, torch_rcbc_mask)
+            )["actions"][:, self.cfg.traj_length - 1, :]
+            sampled_actions_mean = action_mean.repeat_interleave(
+                self.cfg.action_samples, dim=0
+            )  # [beam_width*n, action_dim]
+            sampled_actions = (
+                sampled_actions_mean
+                + self.cfg.action_noise_std
+                * torch.randn(
+                    sampled_actions_mean.shape, device=sampled_actions_mean.device
+                )
+            )
+            expected_return = copied_cum_rewards + torch.minimum(
+                self.critic1(copied_states, sampled_actions),
+                self.critic2(copied_states, sampled_actions),
+            )
+            sorted_return, sorted_idx = torch.sort(
+                expected_return.squeeze(-1), descending=True
+            )
+            trajectories["actions"][:, self.cfg.traj_length - 1, :] = sampled_actions[
+                sorted_idx[: self.cfg.beam_width]
+            ]
+
+            max_return = sorted_return.max(0)[0]
+            # uniform sample from beam_width
+            score = torch.exp(
+                self.cfg.temperature
+                * (sorted_return[: self.cfg.beam_width] - max_return)
+            )
+            sample_idx = torch.multinomial(score, 1)[0]
+            sampled_action = trajectories["actions"][
+                sample_idx, self.cfg.traj_length - 1, :
+            ]
+            best_action = trajectories["actions"][0, self.cfg.traj_length - 1, :]
+            return sampled_action, best_action
+
     def action_sample(self, sequence_history, percentage=1.0, horizon=4, plan=True):
 
         horizon = self.cfg.horizon
@@ -229,7 +348,17 @@ class Learner(object):
         torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(self.cfg.device)
 
         if plan:
-            sample, best = self.bs_planning(torch_zero_trajectory, horizon)
+            assert self.cfg.plan_guidance in [
+                "mtm_critic",
+                "critic_filter",
+                "critic_disturb",
+            ]
+            if self.cfg.plan_guidance == "mtm_critic":
+                sample, best = self.bs_planning(torch_zero_trajectory, horizon)
+            elif self.cfg.plan_guidance == "critic_filter":
+                sample, best = self.filtered_uniform(torch_zero_trajectory)
+            elif self.cfg.plan_guidance == "critic_disturb":
+                sample, best = self.critic_planning(torch_zero_trajectory)
             return sample, best
         else:
             with torch.no_grad():
@@ -242,6 +371,9 @@ class Learner(object):
                 policy_action = self.tokenizer_manager.decode(
                     self.mtm(encode, torch_rcbc_mask)
                 )["actions"][0, self.cfg.traj_length - horizon, :]
+                policy_action += self.cfg.exploration_noise_std * torch.randn(
+                    policy_action.shape, device=policy_action.device
+                )
             return policy_action, None
 
     def compute_mtm_loss(

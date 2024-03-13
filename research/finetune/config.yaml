@@ -71,6 +71,9 @@ finetune_args:
     
     #plan 
     plan: True
+    exploration_noise_std: 0.1 # only valid when no plan
+    critic_noise_std: 0.1 # only valid when choose plan_guidance as disturb
+    plan_guidance: "mtm_critic" # [mtm_critic, critic_filter, critic_disturb]
     beam_width: 128
     horizon: 4
     action_samples: 5
