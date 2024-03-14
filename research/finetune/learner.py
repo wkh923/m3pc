@@ -311,7 +311,11 @@ class Learner(object):
             best_action = trajectories["actions"][0, self.cfg.traj_length - 1, :]
             return sampled_action, best_action
 
-    def action_sample(self, sequence_history, percentage=1.0, horizon=4, plan=True):
+    def action_sample(
+        self, sequence_history, percentage=1.0, horizon=4, plan=True, eval=False
+    ):
+        if eval == True:
+            assert plan == False
 
         horizon = self.cfg.horizon
         end_idx = sequence_history["path_length"]
@@ -371,9 +375,10 @@ class Learner(object):
                 policy_action = self.tokenizer_manager.decode(
                     self.mtm(encode, torch_rcbc_mask)
                 )["actions"][0, self.cfg.traj_length - horizon, :]
-                policy_action += self.cfg.exploration_noise_std * torch.randn(
-                    policy_action.shape, device=policy_action.device
-                )
+                if not eval:
+                    policy_action += self.cfg.exploration_noise_std * torch.randn(
+                        policy_action.shape, device=policy_action.device
+                    )
             return policy_action, None
 
     def compute_mtm_loss(
@@ -593,7 +598,7 @@ class Learner(object):
             while not done and timestep < 1000:
                 current_trajectory["observations"][timestep] = observation
                 action, _ = self.action_sample(
-                    current_trajectory, percentage=1.0, plan=False
+                    current_trajectory, percentage=1.0, plan=False, eval=True
                 )
                 action = np.clip(action.cpu().numpy(), -1, 1)
                 new_observation, reward, done, info = self.env.step(action)
