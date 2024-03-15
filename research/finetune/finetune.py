@@ -260,7 +260,9 @@ def main(hydra_cfg):
     wandb_cfg_log_dict["*num_parameters"] = sum(
         p.numel() for p in learner.mtm.parameters() if p.requires_grad
     )
-    current_time = datetime.now().strftime("%y%m%d_%H%M")
+    # change to hours minute and second
+
+    current_time = datetime.now().strftime("%m%d_%H%M%S")
     wandb_cfg_log = WandBLoggerConfig(
         experiment_id=hydra_cfg.wandb.experiment_name + "_" + current_time,
         # experiment_id=f"{dp.job_id}-{dp.rank}",
