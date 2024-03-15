@@ -97,6 +97,7 @@ finetune_args:
 
     critic_hidden_size: 256
     critic_update: True # [True, False]
+    mtm_update: True # [True, False]
 
 
 wandb:

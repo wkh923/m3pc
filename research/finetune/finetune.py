@@ -165,6 +165,7 @@ class RunConfig:
     trans_buffer_init_method: str = "top_trans"  # ["top_trans", "top_traj", "random"]
 
     critic_update: bool = True  # [True, False]
+    mtm_update: bool = True  # [True, False]
 
 
 def main(hydra_cfg):
@@ -346,8 +347,10 @@ def main(hydra_cfg):
             batch = next(dataloader)
             wandb_logger.log(explore_dict, step=step)
 
-        mtm_log = learner.mtm_update(batch, data_shapes, discrete_map)
-        log_dict.update(mtm_log)
+        if cfg.mtm_update == True:
+            mtm_log = learner.mtm_update(batch, data_shapes, discrete_map)
+            log_dict.update(mtm_log)
+
         log_dict["time/train_step"] = time.time() - start_time
 
         if step % cfg.print_every == 0:
