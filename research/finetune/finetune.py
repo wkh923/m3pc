@@ -264,9 +264,12 @@ def main(hydra_cfg):
     )
     # change to hours minute and second
 
-    current_time = datetime.now().strftime("%m%d_%H%M%S")
+    current_time = datetime.now().strftime("%m%d_%H")
     wandb_cfg_log = WandBLoggerConfig(
-        experiment_id=hydra_cfg.wandb.experiment_name + "_" + current_time,
+        experiment_id=hydra_cfg.wandb.experiment_name
+        + "_"
+        + current_time
+        + f"{dp.job_id}",
         # experiment_id=f"{dp.job_id}-{dp.rank}",
         project=hydra_cfg.wandb.project,
         entity=hydra_cfg.wandb.entity or None,
