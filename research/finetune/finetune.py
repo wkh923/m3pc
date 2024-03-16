@@ -160,11 +160,13 @@ class RunConfig:
 
     horizon: int = 4
     """The horizon for planning, horizon=1 means critic guided search"""
+    rtg_percent: float = 1.0
 
     trans_buffer_update: bool = True  # [True, False]
     trans_buffer_init_method: str = "top_trans"  # ["top_trans", "top_traj", "random"]
 
     critic_update: bool = True  # [True, False]
+    critic_scratch: bool = False  # [True, False]
     mtm_update: bool = True  # [True, False]
 
 
@@ -269,7 +271,7 @@ def main(hydra_cfg):
         project=hydra_cfg.wandb.project,
         entity=hydra_cfg.wandb.entity or None,
         resume=hydra_cfg.wandb.resume,
-        group=dp.job_id,
+        group=hydra_cfg.wandb.group,
     )
 
     if wandb_cfg_log.resume:

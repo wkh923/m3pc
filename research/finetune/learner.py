@@ -42,32 +42,38 @@ class Learner(object):
             env.action_space.shape[-1],
             cfg.critic_hidden_size,
         )
-        self.critic1.load_state_dict(torch.load(pretrain_critic1_path))
-        self.critic1.to(cfg.device)
         self.critic2 = Critic(
             env.observation_space.shape[-1],
             env.action_space.shape[-1],
             cfg.critic_hidden_size,
         )
-        self.critic2.load_state_dict(torch.load(pretrain_critic2_path))
-        self.critic2.to(cfg.device)
         self.critic1_target = Critic(
             env.observation_space.shape[-1],
             env.action_space.shape[-1],
             cfg.critic_hidden_size,
         )
-        self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path))
-        self.critic1_target.to(cfg.device)
         self.critic2_target = Critic(
             env.observation_space.shape[-1],
             env.action_space.shape[-1],
             cfg.critic_hidden_size,
         )
-        self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path))
-        self.critic2_target.to(cfg.device)
         self.value = Value(env.observation_space.shape[-1], cfg.critic_hidden_size)
-        self.value.load_state_dict(torch.load(pretrain_value_path))
-        self.value.to(cfg.device)
+        if self.cfg.critic_scratch is not True:
+            self.critic1.load_state_dict(torch.load(pretrain_critic1_path))
+            self.critic1.to(cfg.device)
+
+            self.critic2.load_state_dict(torch.load(pretrain_critic2_path))
+            self.critic2.to(cfg.device)
+
+            self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path))
+            self.critic1_target.to(cfg.device)
+
+            self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path))
+            self.critic2_target.to(cfg.device)
+
+            self.value.load_state_dict(torch.load(pretrain_value_path))
+            self.value.to(cfg.device)
+
         self.tokenizer_manager = tokenizer_manager
         self.discrete_map = discrete_map
         self.mtm_optimizer = MTM.configure_optimizers(

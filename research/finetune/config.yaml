@@ -71,6 +71,7 @@ finetune_args:
     
     #plan 
     plan: True
+    rtg_percent: 1.0
     exploration_noise_std: 0.1 # only valid when no plan
     critic_noise_std: 0.1 # only valid when choose plan_guidance as disturb
     plan_guidance: "mtm_critic" # [mtm_critic, critic_filter, critic_disturb]
@@ -97,7 +98,9 @@ finetune_args:
 
     critic_hidden_size: 256
     critic_update: True # [True, False]
+    critic_scratch: False # [True, False]
     mtm_update: True # [True, False]
+
 
 
 wandb:
@@ -105,6 +108,7 @@ wandb:
     entity: f69
     resume: null
     experiment_name: hopper
+    group: null
 
 hydra:
     job:
