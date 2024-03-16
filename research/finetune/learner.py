@@ -60,19 +60,16 @@ class Learner(object):
         self.value = Value(env.observation_space.shape[-1], cfg.critic_hidden_size)
         if self.cfg.critic_scratch is not True:
             self.critic1.load_state_dict(torch.load(pretrain_critic1_path))
-            self.critic1.to(cfg.device)
-
             self.critic2.load_state_dict(torch.load(pretrain_critic2_path))
-            self.critic2.to(cfg.device)
-
             self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path))
-            self.critic1_target.to(cfg.device)
-
             self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path))
-            self.critic2_target.to(cfg.device)
-
             self.value.load_state_dict(torch.load(pretrain_value_path))
-            self.value.to(cfg.device)
+
+        self.critic2.to(cfg.device)
+        self.critic1.to(cfg.device)
+        self.critic1_target.to(cfg.device)
+        self.critic2_target.to(cfg.device)
+        self.value.to(cfg.device)
 
         self.tokenizer_manager = tokenizer_manager
         self.discrete_map = discrete_map

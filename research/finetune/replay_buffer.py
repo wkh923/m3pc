@@ -60,7 +60,7 @@ class ReplayBuffer:
         assert self.cfg.trans_buffer_init_method in [
             "top_trajs",
             "top_trans",
-            "random"
+            "random",
         ], TypeError("Please specify a valid transition replay buffer init method")
 
         if discount > 1.0:
@@ -106,7 +106,7 @@ class ReplayBuffer:
             "Experience",
             field_names=["state", "action", "reward", "next_state", "done"],
         )
-        
+
         if self.cfg.trans_buffer_init_method == "top_trans":
             # extract transition from Dataset and add top transitions into replay buffer
             self.next_observations_raw = np.roll(self.observations_raw, -1, axis=0)
@@ -133,7 +133,7 @@ class ReplayBuffer:
             ):
                 e = self.experience(state, action, reward, next_state, done)
                 self.trans_buffer.append(e)
-        
+
         elif self.cfg.trans_buffer_init_method == "random":
             # add transitions from random trajectories into the transition level replay buffer
             self.sorted_observations = self.observations_segmented.reshape(
@@ -147,7 +147,7 @@ class ReplayBuffer:
             self.sorted_dones = np.zeros_like(self.sorted_rewards)
             end_indices = np.cumsum(self.path_lengths) - 1
             self.sorted_dones[end_indices, 0] = 1
-            
+
             for state, action, reward, next_state, done in zip(
                 self.sorted_observations[: self.trans_buffer_size],
                 self.sorted_actions[: self.trans_buffer_size],
@@ -157,7 +157,7 @@ class ReplayBuffer:
             ):
                 e = self.experience(state, action, reward, next_state, done)
                 self.trans_buffer.append(e)
-        else: 
+        else:
             pass
 
         #  assert len(set(self.path_lengths)) == 1
@@ -172,7 +172,7 @@ class ReplayBuffer:
         self.rewards_segmented = self.rewards_segmented[sorted_index]
         self.values_segmented = self.values_segmented[sorted_index]
         self.trajectory_returns = self.trajectory_returns[sorted_index]
-        
+
         keep_idx = []
         traj_count = 0
         for idx, pl in enumerate(self.path_lengths):
@@ -199,7 +199,7 @@ class ReplayBuffer:
         self.p = self.trajectory_returns / self.trajectory_returns.sum(axis=0)
         self.p_length_list = []
         self.p_return_list = []
-        
+
         if self.cfg.trans_buffer_init_method == "top_trajs":
             # add transitions from top trajectories into the transition level replay buffer
             self.sorted_observations = self.observations_segmented.reshape(
@@ -213,7 +213,7 @@ class ReplayBuffer:
             self.sorted_dones = np.zeros_like(self.sorted_rewards)
             end_indices = np.cumsum(self.path_lengths) - 1
             self.sorted_dones[end_indices, 0] = 1
-            
+
             for state, action, reward, next_state, done in zip(
                 self.sorted_observations[: self.trans_buffer_size],
                 self.sorted_actions[: self.trans_buffer_size],
@@ -267,7 +267,9 @@ class ReplayBuffer:
             while not done and timestep < self.max_path_length:
                 current_trajectory["observations"][timestep] = observation
                 action, _ = sample_func(
-                    current_trajectory, percentage=1.0, plan=self.cfg.plan
+                    current_trajectory,
+                    percentage=self.cfg.rtg_percent,
+                    plan=self.cfg.plan,
                 )
                 action = np.clip(
                     action.cpu().numpy(), self.cfg.clip_min, self.cfg.clip_max
