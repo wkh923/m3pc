@@ -275,7 +275,12 @@ class ReplayBuffer:
                     action.cpu().numpy(), self.cfg.clip_min, self.cfg.clip_max
                 )
                 new_observation, reward, done, _ = self.env.step(action)
-                e = self.experience(observation, action, reward, new_observation, done)
+                real_done = False  # Episode can timeout which is different from done
+                if done and timestep < self.max_path_length - 1:
+                    real_done = True
+                e = self.experience(
+                    observation, action, reward, new_observation, real_done
+                )  # done is always True at 1000th step
                 if self.cfg.trans_buffer_update == True:
                     self.trans_buffer.append(e)
                 current_trajectory["actions"][timestep] = action
