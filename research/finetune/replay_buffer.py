@@ -278,6 +278,10 @@ class ReplayBuffer:
                 real_done = False  # Episode can timeout which is different from done
                 if done and timestep < self.max_path_length - 1:
                     real_done = True
+                    print("Episode terminated early.")
+                else:
+                    real_done = False
+                    print("1000! not done yet!")
                 e = self.experience(
                     observation, action, reward, new_observation, real_done
                 )  # done is always True at 1000th step
