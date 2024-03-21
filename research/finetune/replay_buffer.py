@@ -279,8 +279,7 @@ class ReplayBuffer:
                 if done and timestep < self.max_path_length - 1:
                     real_done = True
                     print("Episode terminated early.")
-                else:
-                    real_done = False
+                elif timestep == self.max_path_length - 1:
                     print("1000! not done yet!")
                 e = self.experience(
                     observation, action, reward, new_observation, real_done
