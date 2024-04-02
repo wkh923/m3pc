@@ -56,6 +56,8 @@ class RunConfig:
     trans_buffer_size: int = 20000
     """"Max transition level replay buffer size"""
 
+    buffer_init_ratio: float = 0.2
+
     log_every: int = 100
     """Print training loss every N steps."""
 

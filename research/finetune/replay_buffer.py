@@ -34,6 +34,7 @@ class ReplayBuffer:
         self.traj_buffer_size = cfg.traj_buffer_size
         self.trans_batch_size = cfg.trans_batch_size
         self.trans_buffer_size = cfg.trans_buffer_size
+        self.buffer_init_size = int(cfg.buffer_init_ratio * self.trans_buffer_size)
         self._use_reward = use_reward
         self._name = cfg.env_name
         self._mode = cfg.select_mode
@@ -114,7 +115,7 @@ class ReplayBuffer:
                 self.next_observations_raw[-1]
             )
             sorted_idx_raw = np.argsort(self.rewards_raw[:, 0], axis=0)[::-1][
-                : self.trans_buffer_size
+                : self.buffer_init_size
             ]
             np.random.shuffle(sorted_idx_raw)
             self.sorted_observations_raw = self.observations_raw[sorted_idx_raw]

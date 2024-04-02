@@ -83,7 +83,8 @@ finetune_args:
 
     #replay buffer
     traj_buffer_size: 1000
-    trans_buffer_size: 200000
+    trans_buffer_size: 1000000 # 200000
+    buffer_init_ratio: 0.2
     trans_buffer_update: True
     trans_buffer_init_method: "top_trans"
     pretrain_discount: 1.5
