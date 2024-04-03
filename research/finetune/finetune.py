@@ -166,6 +166,7 @@ class RunConfig:
 
     trans_buffer_update: bool = True  # [True, False]
     trans_buffer_init_method: str = "top_trans"  # ["top_trans", "top_traj", "random"]
+    filter_short_traj: bool = False  # [True, False]
 
     critic_update: bool = True  # [True, False]
     critic_scratch: bool = False  # [True, False]
