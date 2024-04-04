@@ -307,7 +307,10 @@ class ReplayBuffer:
             self.p_length_list.append(current_trajectory["path_length"])
             self.p_return_list.append(current_trajectory["total_return"])
 
-            if current_trajectory["path_length"] >= self.path_lengths_avg:
+            if self.cfg.filter_short_traj == True:
+                if current_trajectory["path_length"] >= self.path_lengths_avg:
+                    new_trajectories.append(current_trajectory)
+            else:
                 new_trajectories.append(current_trajectory)
 
         if len(new_trajectories) > 0:
