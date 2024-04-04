@@ -202,6 +202,9 @@ def main(hydra_cfg):
     pretrain_value_path = os.path.normpath(
         os.path.join(current_path, hydra_cfg.pretrain_value_path)
     )
+    pretrain_actor_path = os.path.normpath(
+        os.path.join(current_path, hydra_cfg.pretrain_actor_path)
+    )
 
     train_dataset: DatasetProtocol
     val_dataset: DatasetProtocol
@@ -250,6 +253,7 @@ def main(hydra_cfg):
         pretrain_critic1_path,
         pretrain_critic2_path,
         pretrain_value_path,
+        pretrain_actor_path,
         tokenizer_manager,
         discrete_map,
     )
@@ -337,12 +341,14 @@ def main(hydra_cfg):
 
             for critic_iter in range(cfg.v_iter_per_mtm):
                 experiences = buffer.trans_sample()
-                critic_log = learner.critic_update(experiences)
                 value_log = learner.value_update(experiences)
+                critic_log = learner.critic_update(experiences)
+                policy_log = learner.policy_update(experiences)
                 learner.critic_target_soft_update()
 
             log_dict.update(critic_log)
             log_dict.update(value_log)
+            log_dict.update(policy_log)
 
         try:
             batch = next(dataloader)
@@ -438,6 +444,7 @@ def main(hydra_cfg):
                 log_dict[f"eval/masked_c_loss_{k}"] = v
 
             val_dict = learner.evaluate(num_episodes=10)
+            val_dict.update(learner.evaluate_policy(num_episodes=10))
 
             learner.mtm.train()
             learner.critic1.train()

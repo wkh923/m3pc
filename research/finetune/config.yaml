@@ -4,6 +4,7 @@ pretrain_model_path: ../../../outputs/mtm_mae/hopper_medium_decoder1/model_14001
 pretrain_critic1_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic1.pt
 pretrain_critic2_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2critic2.pt
 pretrain_value_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2value.pt
+pretrain_actor_path: ../../../research/Implicit-Q-Learning/trained_models/IQLhopper-medium-v2actor.pt
 pretrain_args:
     env_name: hopper-medium-v2
     traj_length: 8

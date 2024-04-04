@@ -12,7 +12,7 @@ def create_rcbc_mask(traj_length:int, device: str,
     state_mask = np.zeros(traj_length)
     state_mask[:idx+1] = 1
     return_mask = np.zeros(traj_length)
-    return_mask[idx] = 1
+    return_mask[:] = 1
     action_mask = np.zeros(traj_length)
     if idx > 0:
         action_mask[:idx] = 1

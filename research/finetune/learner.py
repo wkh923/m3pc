@@ -1,5 +1,5 @@
 from research.finetune.masks import *
-from research.finetune.model import Critic, Value
+from research.finetune.model import Critic, Value, Actor
 from research.mtm.models.mtm_model import MTM
 from research.mtm.tokenizers.base import TokenizerManager
 from research.mtm.datasets.sequence_dataset import Trajectory
@@ -29,6 +29,7 @@ class Learner(object):
         pretrain_critic1_path,
         pretrain_critic2_path,
         pretrain_value_path,
+        pretrain_actor_path,
         tokenizer_manager: TokenizerManager,
         discrete_map: Dict[str, torch.Tensor],
     ):
@@ -58,18 +59,24 @@ class Learner(object):
             cfg.critic_hidden_size,
         )
         self.value = Value(env.observation_space.shape[-1], cfg.critic_hidden_size)
+        self.actor = Actor(env.observation_space.shape[-1],
+            env.action_space.shape[-1],
+            cfg.critic_hidden_size,
+        )
         if self.cfg.critic_scratch is not True:
             self.critic1.load_state_dict(torch.load(pretrain_critic1_path))
             self.critic2.load_state_dict(torch.load(pretrain_critic2_path))
             self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path))
             self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path))
             self.value.load_state_dict(torch.load(pretrain_value_path))
+            self.actor.load_state_dict(torch.load(pretrain_actor_path))
 
         self.critic2.to(cfg.device)
         self.critic1.to(cfg.device)
         self.critic1_target.to(cfg.device)
         self.critic2_target.to(cfg.device)
         self.value.to(cfg.device)
+        self.actor.to(cfg.device)
 
         self.tokenizer_manager = tokenizer_manager
         self.discrete_map = discrete_map
@@ -110,6 +117,12 @@ class Learner(object):
 
         self.value_optimizer = torch.optim.Adam(
             self.value.parameters(),
+            lr=self.cfg.v_lr,
+            weight_decay=self.cfg.weight_decay,
+            betas=(0.9, 0.999),
+        )
+        self.actor_optimizer = torch.optim.Adam(
+            self.actor.parameters(),
             lr=self.cfg.v_lr,
             weight_decay=self.cfg.weight_decay,
             betas=(0.9, 0.999),
@@ -489,6 +502,24 @@ class Learner(object):
         value_loss = loss(min_Q - value, 0.8).mean()
 
         return value_loss
+    
+    def compute_policy_loss(self, experience):
+        
+        states, actions, rewards, next_states, dones = experience
+        with torch.no_grad():
+            v = self.value(states)
+            q1 = self.critic1_target(states, actions)
+            q2 = self.critic2_target(states, actions)
+            min_Q = torch.min(q1,q2)
+
+        exp_a = torch.exp((min_Q - v) * 3)
+        exp_a = torch.min(exp_a, torch.FloatTensor([100.0]).to(states.device))
+
+        _, dist = self.actor.evaluate(states)
+        log_probs = dist.log_prob(actions)
+        actor_loss = -(exp_a * log_probs).mean()
+
+        return actor_loss
 
     def mtm_update(self, batch, data_shapes, discrete_map):
         loss, losses, masked_losses, masked_c_losses = self.compute_mtm_loss(
@@ -543,6 +574,18 @@ class Learner(object):
         self.value_optimizer.step()
 
         return log_dict
+    
+    def policy_update(self, experience: Tuple[torch.Tensor]):
+        
+        policy_loss = self.compute_policy_loss(experience)
+        
+        log_dict = {}
+        log_dict[f"train/policy_loss"] = policy_loss
+        self.actor.zero_grad(set_to_none=True)
+        policy_loss.backward()
+        self.actor_optimizer.step()
+
+        return log_dict
 
     def critic_target_soft_update(self):
 
@@ -569,6 +612,103 @@ class Learner(object):
         num_videos: int = 3,
     ) -> Dict[str, Any]:
 
+        return_to_go_list = [0.8, 0.9, 1.0]
+        log_data = {}
+
+        for return_to_go in return_to_go_list:
+            
+            stats: Dict[str, Any] = defaultdict(list)
+            successes = None
+            for i in range(num_episodes):
+                current_trajectory = {
+                    "observations": np.zeros(
+                        (1000, self.env.observation_space.shape[0]), dtype=np.float32
+                    ),
+                    "actions": np.zeros(
+                        (1000, self.env.action_space.shape[0]), dtype=np.float32
+                    ),
+                    "rewards": np.zeros((1000, 1), dtype=np.float32),
+                    "values": np.zeros((1000, 1), dtype=np.float32),
+                    "total_return": 0,
+                    "path_length": 0,
+                }
+
+                observation, done = self.env.reset(), False
+                # if len(videos) < num_videos:
+                #     try:
+                #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
+                #     except:
+                #         imgs = [self.env.render()[::-1]]
+
+                timestep = 0
+                while not done and timestep < 1000:
+                    current_trajectory["observations"][timestep] = observation
+                    action, _ = self.action_sample(
+                        current_trajectory, percentage=return_to_go, plan=False, eval=True
+                    )
+                    action = np.clip(action.cpu().numpy(), -1, 1)
+                    new_observation, reward, done, info = self.env.step(action)
+                    current_trajectory["actions"][timestep] = action
+                    current_trajectory["rewards"][timestep] = reward
+                    observation = new_observation
+                    timestep += 1
+                    current_trajectory["path_length"] += 1
+                    # if len(videos) < num_videos:
+                    #     try:
+                    #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
+                    #     except:
+                    #         imgs.append(self.env.render()[::-1])
+
+                # if len(videos) < num_videos:
+                #     videos.append(np.array(imgs[:-1]))
+
+                if "episode" in info:
+                    for k in info["episode"].keys():
+                        stats[k].append(float(info["episode"][k]))
+                        if verbose:
+                            print(f"{k}:{info['episode'][k]}")
+
+                    ret = info["episode"]["return"]
+                    mean = np.mean(stats["return"])
+                    if "is_success" in info:
+                        if successes is None:
+                            successes = 0.0
+                        successes += info["is_success"]
+
+                else:
+                    stats["return"].append(current_trajectory["rewards"].sum())
+                    stats["length"].append(current_trajectory["path_length"])
+
+            new_stats = {}
+            for k, v in stats.items():
+                new_stats[k + "_mean"] = float(np.mean(v))
+                new_stats[k + "_std"] = float(np.std(v))
+
+            if all_results:
+                new_stats.update(stats)
+            stats = new_stats
+            print(stats["return_mean"])
+            if successes is not None:
+                stats["success"] = successes / num_episodes
+
+            for k, v in stats.items():
+                log_data[f"eval_bc_{return_to_go}/{k}"] = v
+            # for idx, v in enumerate(videos):
+            #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
+            #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
+            #     )
+
+        return log_data
+    
+    def evaluate_policy(
+        self,
+        num_episodes: int,
+        disable_tqdm: bool = True,
+        verbose: bool = False,
+        all_results: bool = False,
+        num_videos: int = 3,
+    ) -> Dict[str, Any]:
+
         stats: Dict[str, Any] = defaultdict(list)
         successes = None
 
@@ -577,19 +717,7 @@ class Learner(object):
         videos = []
 
         for i in pbar:
-            current_trajectory = {
-                "observations": np.zeros(
-                    (1000, self.env.observation_space.shape[0]), dtype=np.float32
-                ),
-                "actions": np.zeros(
-                    (1000, self.env.action_space.shape[0]), dtype=np.float32
-                ),
-                "rewards": np.zeros((1000, 1), dtype=np.float32),
-                "values": np.zeros((1000, 1), dtype=np.float32),
-                "total_return": 0,
-                "path_length": 0,
-            }
-
+            
             observation, done = self.env.reset(), False
             # if len(videos) < num_videos:
             #     try:
@@ -599,17 +727,12 @@ class Learner(object):
 
             timestep = 0
             while not done and timestep < 1000:
-                current_trajectory["observations"][timestep] = observation
-                action, _ = self.action_sample(
-                    current_trajectory, percentage=1.0, plan=False, eval=True
-                )
-                action = np.clip(action.cpu().numpy(), -1, 1)
+                obs = torch.from_numpy(observation).float().to(self.cfg.device)
+                action = self.actor.get_det_action(obs)
+                action = action.numpy()
                 new_observation, reward, done, info = self.env.step(action)
-                current_trajectory["actions"][timestep] = action
-                current_trajectory["rewards"][timestep] = reward
                 observation = new_observation
                 timestep += 1
-                current_trajectory["path_length"] += 1
                 # if len(videos) < num_videos:
                 #     try:
                 #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
@@ -619,23 +742,19 @@ class Learner(object):
             # if len(videos) < num_videos:
             #     videos.append(np.array(imgs[:-1]))
 
-            if "episode" in info:
-                for k in info["episode"].keys():
-                    stats[k].append(float(info["episode"][k]))
-                    if verbose:
-                        print(f"{k}:{info['episode'][k]}")
+            
+            for k in info["episode"].keys():
+                stats[k].append(float(info["episode"][k]))
+                if verbose:
+                    print(f"{k}:{info['episode'][k]}")
 
-                ret = info["episode"]["return"]
-                mean = np.mean(stats["return"])
-                pbar.set_description(f"iter={i}\t last={ret:.2f} mean={mean}")
-                if "is_success" in info:
-                    if successes is None:
-                        successes = 0.0
-                    successes += info["is_success"]
-
-            else:
-                stats["return"].append(current_trajectory["rewards"].sum())
-                stats["length"].append(current_trajectory["path_length"])
+            ret = info["episode"]["return"]
+            mean = np.mean(stats["return"])
+            pbar.set_description(f"iter={i}\t last={ret:.2f} mean={mean}")
+            if "is_success" in info:
+                if successes is None:
+                    successes = 0.0
+                successes += info["is_success"]
 
         new_stats = {}
         for k, v in stats.items():
@@ -651,7 +770,7 @@ class Learner(object):
 
         log_data = {}
         for k, v in stats.items():
-            log_data[f"eval_bc/{k}"] = v
+            log_data[f"eval_policy/{k}"] = v
         # for idx, v in enumerate(videos):
         #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
         #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
