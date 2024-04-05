@@ -55,7 +55,7 @@ finetune_args:
     device: cuda
     use_masked_loss: False
     loss_weight: {"actions":  1.0, "states": 1.0, "returns": 1.0, "rewards": 1.0}
-    mtm_iter_per_rollout: 1
+    mtm_iter_per_rollout: 200
     v_iter_per_mtm: 10
     
     #train
