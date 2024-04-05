@@ -71,16 +71,16 @@ finetune_args:
     # save_every: 1
     
     #plan 
-    plan: False # False
-    rtg_percent: 1.0
+    plan: True
+    rtg_percent: 1.0 # [0.8 1.0]
     exploration_noise_std: 0.1 # only valid when no plan
     critic_noise_std: 0.1 # only valid when choose plan_guidance as disturb
     plan_guidance: "mtm_critic" # [mtm_critic, critic_filter, critic_disturb]
     beam_width: 128
     horizon: 4
-    action_samples: 5 # 3
+    action_samples: 5
     temperature: 1.0
-    action_noise_std: [0.05, 0.1, 0.1] # [0.1, 0.1, 0.1]
+    action_noise_std: 0.1
 
     #replay buffer
     filter_short_traj: True

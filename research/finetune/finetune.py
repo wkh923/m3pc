@@ -132,7 +132,7 @@ class RunConfig:
     temperature: float = 0.5
     """Used in planning"""
 
-    action_noise_std: Tuple = (0.1, 0.1, 0.1,)
+    action_noise_std: float = 0.2
 
     tau: float = 0.1
     """Used to construct replay buffer"""
@@ -154,8 +154,8 @@ class RunConfig:
     """Do planning when rolling out"""
 
     plan_guidance: str = "mtm_critic"
-    exploration_noise_std: Tuple = (0.1, 0.1, 0.1,)
-    critic_noise_std: Tuple = (0.1, 0.1, 0.1,)
+    exploration_noise_std: float = 0.1
+    critic_noise_std: float = 0.1
 
     beam_width: int = 256
     """The number of candidates retained during beam search"""
