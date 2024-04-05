@@ -130,7 +130,7 @@ class Learner(object):
 
     def bs_planning(self, trajectory: Dict[str, torch.Tensor], h: int):
 
-        explr_noise = np.array(self.cfg.action_noise_std)
+        explr_noise = torch.tensor(self.cfg.action_noise_std, device=self.cfg.device)
         trajectories = {
             k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
         }
@@ -212,7 +212,7 @@ class Learner(object):
 
     def filtered_uniform(self, trajectory: Dict[str, torch.Tensor]):
         
-        explr_noise = np.array(self.cfg.action_noise_std)
+        explr_noise = torch.tensor(self.cfg.action_noise_std, device=self.cfg.device)
         trajectories = {
             k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
         }
@@ -269,7 +269,7 @@ class Learner(object):
 
     def critic_planning(self, trajectory: Dict[str, torch.Tensor]):
         
-        explr_noise = np.array(self.cfg.action_noise_std)
+        explr_noise = torch.tensor(self.cfg.action_noise_std, device=self.cfg.device)
         trajectories = {
             k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
         }
@@ -335,7 +335,7 @@ class Learner(object):
     ):
         if eval == True:
             assert plan == False
-        explr_noise = np.array(self.cfg.action_noise_std)
+        explr_noise = torch.tensor(self.cfg.action_noise_std, device=self.cfg.device)
 
         horizon = self.cfg.horizon
         end_idx = sequence_history["path_length"]
