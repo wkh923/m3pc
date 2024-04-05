@@ -617,9 +617,13 @@ class Learner(object):
 
         for return_to_go in return_to_go_list:
             
+            pbar = tqdm.tqdm(range(num_episodes), disable=disable_tqdm, ncols=85)
+
+            videos = []
+            
             stats: Dict[str, Any] = defaultdict(list)
             successes = None
-            for i in range(num_episodes):
+            for i in pbar:
                 current_trajectory = {
                     "observations": np.zeros(
                         (1000, self.env.observation_space.shape[0]), dtype=np.float32
@@ -634,11 +638,11 @@ class Learner(object):
                 }
 
                 observation, done = self.env.reset(), False
-                # if len(videos) < num_videos:
-                #     try:
-                #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
-                #     except:
-                #         imgs = [self.env.render()[::-1]]
+                if len(videos) < num_videos:
+                    try:
+                        imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
+                    except:
+                        imgs = [self.env.render()[::-1]]
 
                 timestep = 0
                 while not done and timestep < 1000:
@@ -653,14 +657,15 @@ class Learner(object):
                     observation = new_observation
                     timestep += 1
                     current_trajectory["path_length"] += 1
-                    # if len(videos) < num_videos:
-                    #     try:
-                    #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
-                    #     except:
-                    #         imgs.append(self.env.render()[::-1])
+                    if len(videos) < num_videos:
+                        try:
+                            imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
+                        except:
+                            imgs.append(self.env.render()[::-1])
+                            
 
-                # if len(videos) < num_videos:
-                #     videos.append(np.array(imgs[:-1]))
+                if len(videos) < num_videos:
+                    videos.append(np.array(imgs[:-1]))
 
                 if "episode" in info:
                     for k in info["episode"].keys():
@@ -670,6 +675,7 @@ class Learner(object):
 
                     ret = info["episode"]["return"]
                     mean = np.mean(stats["return"])
+                    pbar.set_description(f"iter={i}\t last={ret:.2f} mean={mean}")
                     if "is_success" in info:
                         if successes is None:
                             successes = 0.0
@@ -693,10 +699,10 @@ class Learner(object):
 
             for k, v in stats.items():
                 log_data[f"eval_bc_{return_to_go}/{k}"] = v
-            # for idx, v in enumerate(videos):
-            #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
-            #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
-            #     )
+            for idx, v in enumerate(videos):
+                log_data[f"eval_bc_{return_to_go}_video_{idx}/video"] = wandb.Video(
+                    v.transpose(0, 3, 1, 2), fps=20, format="gif"
+                )
 
         return log_data
     
