@@ -572,15 +572,11 @@ def evaluate(
     encoded_batch = tokenizer_manager.encode(val_batch)
     predicted_trajectories = model(encoded_batch, masks)
     model_without_ddp = model.module if hasattr(model, "module") else model
-    (
-        loss,
-        losses_dict,
-        masked_losses,
-        masked_c_losses,
-    ) = omtm.forward_loss(
+    (loss, losses_dict, masked_losses, masked_c_losses, _) = omtm.forward_loss(
         encoded_batch,
         predicted_trajectories,
         masks,
+        model.temperature().detach(),
         discrete_map,
         norm=model_without_ddp.norm,
         reduce_use_sum=model_without_ddp.config.reduce_use_sum,
@@ -598,9 +594,12 @@ def evaluate(
     mse_loss = 0
     predictions = tokenizer_manager.decode(predicted_trajectories)
     for k, v in predictions.items():
-        _mse = F.mse_loss(v.to(torch.float32), val_batch[k].to(torch.float32)).item()
-        log_dict[f"val/mse_{k}"] = _mse
-        mse_loss += _mse
+        if k != "actions":
+            _mse = F.mse_loss(
+                v.to(torch.float32), val_batch[k].to(torch.float32)
+            ).item()
+            log_dict[f"val/mse_{k}"] = _mse
+            mse_loss += _mse
     log_dict["val/mse_sum"] = mse_loss
 
     if "states" in val_batch and "actions" in val_batch and "images" in val_batch:
@@ -692,6 +691,8 @@ def train_one_batch(
                 log_dict[f"train/mse_{k}"] = _mse
                 mse_loss += _mse
         log_dict["train/mse_sum"] = mse_loss
+        log_dict["train/temperature"] = model.temperature().item()
+        log_dict["train/entropy"] = entropy.item()
     return log_dict
 
 
@@ -892,7 +893,7 @@ def _main(hydra_cfg):
     )
 
     wandb_cfg_log = WandBLoggerConfig(
-        experiment_id=f"{dp.job_id}-{dp.rank}",
+        experiment_id=hydra_cfg.wandb.name + f"{dp.job_id}-{dp.rank}",
         project=hydra_cfg.wandb.project,
         entity=hydra_cfg.wandb.entity or None,
         resume=hydra_cfg.wandb.resume,
@@ -1156,13 +1157,15 @@ def _main(hydra_cfg):
             )
             log_dict["time/eval_time"] = time.time() - start_time
 
-            if cfg.traj_length >= 2 and hasattr(val_dataset, "env"):
-                log_dict.update(
-                    eval_fd(model, val_dataset.env, val_batch, tokenizer_manager)
-                )
-                log_dict.update(
-                    eval_id(model, val_dataset.env, val_batch, tokenizer_manager)
-                )
+            # TODO: add back more evals
+
+            # if cfg.traj_length >= 2 and hasattr(val_dataset, "env"):
+            #     log_dict.update(
+            #         eval_fd(model, val_dataset.env, val_batch, tokenizer_manager)
+            #     )
+            #     log_dict.update(
+            #         eval_id(model, val_dataset.env, val_batch, tokenizer_manager)
+            #     )
 
             wandb_logger.log(log_dict, step=step)
             val_loss = log_dict["val/val_loss"]

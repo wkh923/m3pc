@@ -269,7 +269,7 @@ class SequenceDataset:
         results, videos = evaluate(
             bc_sampler,
             self.dataset.env,
-            20,
+            1,  # TODO: for test 1
             (self.observation_dim,),
             (self.action_dim,),
             num_videos=0,
@@ -478,7 +478,7 @@ def sample_action_bc(
     decode = tokenizer_manager.decode(predicted)
 
     # extract_action
-    a = decode["actions"][0][0].cpu().numpy()
+    a = decode["actions"].mean[0][0][0].cpu().numpy()
     return a
 
 
@@ -549,7 +549,7 @@ def sample_action_bc2(
     decode = tokenizer_manager.decode(predicted)
 
     # extract_action
-    a = decode["actions"][0][i + 1].cpu().numpy()
+    a = decode["actions"].mean[0][i + 1][0].cpu().numpy()
     return a
 
 
@@ -819,7 +819,7 @@ def sample_action_bc_two_stage(
     decode = tokenizer_manager.decode(predicted)
 
     # extract_action
-    a = decode["actions"][0][0].cpu().numpy()
+    a = decode["actions"].mean[0][0][0].cpu().numpy()
     return a
 
 

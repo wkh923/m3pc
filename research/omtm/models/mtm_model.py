@@ -60,11 +60,22 @@ def make_plots_with_masks(
         decoded_trajs = tokenizer_manager.decode(predictions)
 
         # use mean from action
-        decoded_trajs["actions"] = decoded_trajs["actions"].mean
+        decoded_gt_trajectories["actions"] = decoded_gt_trajectories["actions"].squeeze(
+            2
+        )
+        decoded_trajs["actions"] = decoded_trajs["actions"].mean.squeeze(2)
+        predictions["actions"] = predictions["actions"].mean
+
+        # print("decoded action shape", decoded_trajs["actions"].shape)
+        # print("gt action", trajectories["actions"].shape)
+
+        # decoded_trajs["actions"] = decoded_trajs["actions"].squeeze(2)
         # TODO: maybe need reshape
 
         mse_loss = 0
         for k, v in decoded_trajs.items():
+            # print(k, v.shape)
+            # print(k, trajectories[k].shape)
             _mse = F.mse_loss(
                 v.to(torch.float32), trajectories[k].to(torch.float32)
             ).item()
