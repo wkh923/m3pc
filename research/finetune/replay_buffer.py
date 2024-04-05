@@ -433,7 +433,10 @@ class ReplayBuffer:
 
     def trans_sample(self):
         """ "Sample a batch of experinces from transition level replay buffer"""
-        experiences = random.sample(self.trans_buffer, k=self.trans_batch_size)
+        e_idx = np.random.randint(0, len(self.trans_buffer), (self.trans_batch_size,))
+        experiences = []
+        for idx in e_idx:
+            experiences.append(self.trans_buffer[idx])
 
         states = (
             torch.from_numpy(np.stack([e.state for e in experiences if e is not None]))

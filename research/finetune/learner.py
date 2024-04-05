@@ -130,6 +130,7 @@ class Learner(object):
 
     def bs_planning(self, trajectory: Dict[str, torch.Tensor], h: int):
 
+        explr_noise = np.array(self.cfg.action_noise_std)
         trajectories = {
             k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
         }
@@ -162,7 +163,7 @@ class Learner(object):
                 )  # [beam_width*n, action_dim]
                 sampled_actions = (
                     sampled_actions_mean
-                    + self.cfg.action_noise_std
+                    + explr_noise
                     * torch.randn(
                         sampled_actions_mean.shape, device=sampled_actions_mean.device
                     )
@@ -210,7 +211,8 @@ class Learner(object):
             return sampled_action, best_action
 
     def filtered_uniform(self, trajectory: Dict[str, torch.Tensor]):
-
+        
+        explr_noise = np.array(self.cfg.action_noise_std)
         trajectories = {
             k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
         }
@@ -239,7 +241,7 @@ class Learner(object):
             )  # [beam_width*n, action_dim]
             sampled_actions = (
                 sampled_actions_mean
-                + self.cfg.action_noise_std
+                + explr_noise
                 * torch.randn(
                     sampled_actions_mean.shape, device=sampled_actions_mean.device
                 )
@@ -266,7 +268,8 @@ class Learner(object):
             return sampled_action, best_action
 
     def critic_planning(self, trajectory: Dict[str, torch.Tensor]):
-
+        
+        explr_noise = np.array(self.cfg.action_noise_std)
         trajectories = {
             k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
         }
@@ -279,7 +282,7 @@ class Learner(object):
                 :, self.cfg.traj_length - 1, :
             ].repeat_interleave(self.cfg.action_samples, dim=0)
 
-            copied_states += self.cfg.critic_noise_std * torch.randn(
+            copied_states += explr_noise * torch.randn(
                 copied_states.shape, device=copied_states.device
             )
             # [beam_width*n, obs_dim]
@@ -332,6 +335,7 @@ class Learner(object):
     ):
         if eval == True:
             assert plan == False
+        explr_noise = np.array(self.cfg.action_noise_std)
 
         horizon = self.cfg.horizon
         end_idx = sequence_history["path_length"]
@@ -392,7 +396,7 @@ class Learner(object):
                     self.mtm(encode, torch_rcbc_mask)
                 )["actions"][0, self.cfg.traj_length - horizon, :]
                 if not eval:
-                    policy_action += self.cfg.exploration_noise_std * torch.randn(
+                    policy_action += explr_noise * torch.randn(
                         policy_action.shape, device=policy_action.device
                     )
             return policy_action, None
@@ -638,11 +642,11 @@ class Learner(object):
                 }
 
                 observation, done = self.env.reset(), False
-                if len(videos) < num_videos:
-                    try:
-                        imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
-                    except:
-                        imgs = [self.env.render()[::-1]]
+                # if len(videos) < num_videos:
+                #     try:
+                #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
+                #     except:
+                #         imgs = [self.env.render()[::-1]]
 
                 timestep = 0
                 while not done and timestep < 1000:
@@ -657,15 +661,15 @@ class Learner(object):
                     observation = new_observation
                     timestep += 1
                     current_trajectory["path_length"] += 1
-                    if len(videos) < num_videos:
-                        try:
-                            imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
-                        except:
-                            imgs.append(self.env.render()[::-1])
+                    # if len(videos) < num_videos:
+                    #     try:
+                    #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
+                    #     except:
+                    #         imgs.append(self.env.render()[::-1])
                             
 
-                if len(videos) < num_videos:
-                    videos.append(np.array(imgs[:-1]))
+                # if len(videos) < num_videos:
+                #     videos.append(np.array(imgs[:-1]))
 
                 if "episode" in info:
                     for k in info["episode"].keys():
@@ -675,7 +679,7 @@ class Learner(object):
 
                     ret = info["episode"]["return"]
                     mean = np.mean(stats["return"])
-                    pbar.set_description(f"iter={i}\t last={ret:.2f} mean={mean}")
+                    # pbar.set_description(f"iter={i}\t last={ret:.2f} mean={mean}")
                     if "is_success" in info:
                         if successes is None:
                             successes = 0.0
@@ -699,10 +703,10 @@ class Learner(object):
 
             for k, v in stats.items():
                 log_data[f"eval_bc_{return_to_go}/{k}"] = v
-            for idx, v in enumerate(videos):
-                log_data[f"eval_bc_{return_to_go}_video_{idx}/video"] = wandb.Video(
-                    v.transpose(0, 3, 1, 2), fps=20, format="gif"
-                )
+            # for idx, v in enumerate(videos):
+            #     log_data[f"eval_bc_{return_to_go}_video_{idx}/video"] = wandb.Video(
+            #         v.transpose(0, 3, 1, 2), fps=20, format="gif"
+            #     )
 
         return log_data
     
