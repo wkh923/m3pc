@@ -269,7 +269,7 @@ class SequenceDataset:
         results, videos = evaluate(
             bc_sampler,
             self.dataset.env,
-            1,  # TODO: for test 1
+            10,  # TODO: for test 1
             (self.observation_dim,),
             (self.action_dim,),
             num_videos=0,

@@ -572,7 +572,7 @@ def evaluate(
     encoded_batch = tokenizer_manager.encode(val_batch)
     predicted_trajectories = model(encoded_batch, masks)
     model_without_ddp = model.module if hasattr(model, "module") else model
-    (loss, losses_dict, masked_losses, masked_c_losses, _) = omtm.forward_loss(
+    (loss, losses_dict, masked_losses, masked_c_losses, entropy) = omtm.forward_loss(
         encoded_batch,
         predicted_trajectories,
         masks,
@@ -584,6 +584,7 @@ def evaluate(
     )
 
     log_dict = {"val/val_loss": loss.item()}
+    log_dict = {"val/entropy": entropy.item()}
     for k, v in losses_dict.items():
         log_dict[f"val/full_loss_{k}"] = v.item()
     for k, v in masked_losses.items():
