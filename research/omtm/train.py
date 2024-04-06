@@ -583,8 +583,7 @@ def evaluate(
         loss_keys=model_without_ddp.config.loss_keys,
     )
 
-    log_dict = {"val/val_loss": loss.item()}
-    log_dict = {"val/entropy": entropy.item()}
+    log_dict = {"val/val_loss": loss.item(), "val/entropy": entropy.item()}
     for k, v in losses_dict.items():
         log_dict[f"val/full_loss_{k}"] = v.item()
     for k, v in masked_losses.items():

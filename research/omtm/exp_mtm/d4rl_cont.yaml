@@ -16,9 +16,9 @@ tokenizers:
 
 dataset:
     use_reward: True
-    env_name: "walker2d-medium-replay-v2"
+    env_name: "hopper-medium-v2"
     train_val_split: 0.95
 
 wandb:
-    project: "walker2d-pretrain"
-    resume: allow
+    project: "pretrain"
+    resume: null

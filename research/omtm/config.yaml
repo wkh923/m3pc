@@ -24,7 +24,7 @@ args:
     n_workers: 10
     traj_length: 8
 
-    # Debug
+    #Debug
     # log_every: 1
     # print_every: 1
     # eval_every: 1

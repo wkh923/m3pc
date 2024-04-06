@@ -450,6 +450,18 @@ class omtm(nn.Module):
                 ).unsqueeze(3)
             else:
                 if key == "actions":
+                    # sperate calc the action loss
+                    raw_loss = nn.MSELoss(reduction="none")(pred.mean, target) * mask[None, :, :, None]
+                    losses[key] = raw_loss.mean(dim=(2, 3)).mean()
+                    
+                    a = targets["actions"]
+                    a_hat_dist = preds["actions"]
+                    log_likelihood = a_hat_dist.log_likelihood(a)[:, ~mask.squeeze().to(torch.bool), :].mean()
+                    entropy = a_hat_dist.entropy()[:, ~mask.squeeze().to(torch.bool), :].mean()
+                    act_loss = -(log_likelihood + entropy_reg * entropy)
+                    losses["mask_actions"] = act_loss
+                    losses["nll"] = -log_likelihood
+                    
                     continue
                 else:
                     # apply normalization
@@ -485,21 +497,10 @@ class omtm(nn.Module):
             masked_c_losses[key] = masked_c_loss
             masked_losses[key] = masked_loss
 
-        # sperate calc the action loss
-        a = targets["actions"]
-        a_hat_dist = preds["actions"]
-        log_likelihood = a_hat_dist.log_likelihood(a).mean()
-        entropy = a_hat_dist.entropy().mean()
-        act_loss = -(log_likelihood + entropy_reg * entropy)
-        losses["actions"] = act_loss
-        losses["nll"] = -log_likelihood
-
         if loss_keys is None:
             loss = torch.sum(torch.stack(list(losses.values())))
         else:
             loss = torch.sum(torch.stack([losses[key] for key in loss_keys]))
-
-        loss += act_loss
 
         return loss, losses, masked_losses, masked_c_losses, entropy
 
