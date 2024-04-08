@@ -247,6 +247,48 @@ class Learner(object):
         best_action = sample_actions[max_idx]
         
         return sample_action, best_action
+    
+    @torch.no_grad()
+    def critic_lambda_guiding(self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float):
+        
+        trajectory_batch = {k: v.repeat(1024, 1, 1) for k, v in trajectory.items()}
+        encode = self.tokenizer_manager.encode(trajectory)
+        torch_rcbc_mask = create_rcbc_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))["actions"] # dist of shape(1, seq_len, act_dim)
+        sample_actions = action_dist.sample((1024,))[:, 0, self.cfg.traj_length - h:, 0, :] #(1024, h, act_dim)
+        trajectory_batch['actions'][:, self.cfg.traj_length - h:, :] = sample_actions
+        torch_fd_mask = create_fd_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        encode_batch = self.tokenizer_manager.encode(trajectory_batch)
+        decode = self.tokenizer_manager.decode(self.mtm(encode_batch, torch_fd_mask))
+        future_states = decode["states"][:, self.cfg.traj_length - h :, :] #(1024, h, state_dim)
+        future_rewards = decode["rewards"][:, self.cfg.traj_length - h :, :] #(1024, h, 1)
+        expect_return = torch.zeros((1024,), device=self.cfg.device)
+        for t in range(h):
+            values = torch.zeros((1024, t+1), device=self.cfg.device)
+            discounts = torch.cumprod(self.cfg.discount * torch.ones((t+1,), device=self.cfg.device), dim=0)
+            if t > 0:
+                values[:, :t] = future_rewards[:, :t, 0]
+            values[:, t] = torch.min(self.critic1(future_states[:, t], sample_actions[:, t]), 
+                                  self.critic2(future_states[:, t], sample_actions[:, t])).squeeze(-1)
+            values *= discounts[None, :]
+            if t < h - 1:
+                expect_return += values.sum(dim=-1) * (1 - lmbda) * (lmbda ** t)
+            else:
+                expect_return += values.sum(dim=-1) * (lmbda ** t)
+        
+        expect_return -= torch.max(expect_return)
+        p = torch.exp(expect_return) / torch.exp(expect_return).sum()
+        sample_idx = torch.multinomial(p, 1)
+        sample_action = sample_actions[sample_idx, 0]
+        max_idx = p.max(dim=0)[1]
+        best_action = sample_actions[max_idx, 0]
+        
+        return sample_action, best_action    
+                
         
     @torch.no_grad()
     def action_sample(
@@ -292,9 +334,14 @@ class Learner(object):
         if plan:
             assert self.cfg.plan_guidance in [
                 "critic_guiding",
+                "critic_lambda_guiding",
             ]
-            sample, best = self.critic_guiding(torch_zero_trajectory, horizon)
-            return sample, best
+            if self.cfg.plan_guidance == "critic_guiding":
+                sample, best = self.critic_guiding(torch_zero_trajectory, horizon)
+                return sample, best
+            elif self.cfg.plan_guidance == "critic_lambda_guiding":
+                sample, best = self.critic_lambda_guiding(torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda)
+                return sample, best
         else:  
             if not eval:
                 policy_action, _ = self.mtm_sampling(torch_zero_trajectory, horizon)
@@ -367,7 +414,7 @@ class Learner(object):
         
         loss = torch.sum(torch.stack(list(losses.values())))
         
-        a = targets["actions"]
+        a = targets["actions"].clip(-1+1e-6, 1-1e-6)
         a_hat_dist = preds["actions"]
         log_likelihood = a_hat_dist.log_likelihood(a)[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
         entropy = a_hat_dist.entropy()[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
@@ -404,7 +451,7 @@ class Learner(object):
             min_Q = torch.min(q1, q2) * (1 - dones)
 
         value = self.value(states)
-        value_loss = loss(min_Q - value, 0.8).mean()
+        value_loss = loss(min_Q - value, self.cfg.expectile).mean()
 
         return value_loss
     

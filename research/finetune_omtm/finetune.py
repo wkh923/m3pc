@@ -151,6 +151,8 @@ class RunConfig:
     """Do planning when rolling out"""
 
     plan_guidance: str = "mtm_critic"
+    lmbda: float = 0.9
+    expectile: float = 0.8
     exploration_noise_std: float = 0.1
     critic_noise_std: float = 0.1
 

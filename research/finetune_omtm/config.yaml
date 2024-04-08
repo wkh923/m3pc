@@ -77,7 +77,9 @@ finetune_args:
     rtg_percent: 1.0 # [0.8 1.0]
     exploration_noise_std: 0.1 # only valid when no plan
     critic_noise_std: 0.1 # only valid when choose plan_guidance as disturb
-    plan_guidance: "critic_guiding" # [critic_guiding]
+    plan_guidance: "critic_lambda_guiding" # [critic_guiding, critic_lambda_guiding]
+    lmbda: 0.9
+    expectile: 0.8
     beam_width: 128
     horizon: 4
     action_samples: 5
@@ -85,7 +87,7 @@ finetune_args:
     action_noise_std: 0.1
 
     #replay buffer
-    filter_short_traj: True
+    filter_short_traj: False
     traj_buffer_size: 1000
     trans_buffer_size: 1000000 # 200000
     buffer_init_ratio: 0.2
