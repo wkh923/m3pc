@@ -292,6 +292,9 @@ def create_random_autoregressize_mask(
                 masks[k][random_position:, :] = 0
             else:
                 masks[k][random_position + 1 :, :] = 0
+    #Assert one mask action here
+    if masks["actions"].eq(1).all():
+        masks['actions'][-1] = 0
 
     # print(random_mode, random_position)
     return masks

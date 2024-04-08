@@ -454,14 +454,6 @@ class omtm(nn.Module):
                     raw_loss = nn.MSELoss(reduction="none")(pred.mean, target) * mask[None, :, :, None]
                     losses[key] = raw_loss.mean(dim=(2, 3)).mean()
                     
-                    a = targets["actions"]
-                    a_hat_dist = preds["actions"]
-                    log_likelihood = a_hat_dist.log_likelihood(a)[:, ~mask.squeeze().to(torch.bool), :].mean()
-                    entropy = a_hat_dist.entropy()[:, ~mask.squeeze().to(torch.bool), :].mean()
-                    act_loss = -(log_likelihood + entropy_reg * entropy)
-                    losses["mask_actions"] = act_loss
-                    losses["nll"] = -log_likelihood
-                    
                     continue
                 else:
                     # apply normalization
@@ -501,7 +493,17 @@ class omtm(nn.Module):
             loss = torch.sum(torch.stack(list(losses.values())))
         else:
             loss = torch.sum(torch.stack([losses[key] for key in loss_keys]))
-
+        
+        a = targets["actions"]
+        a_hat_dist = preds["actions"]
+        log_likelihood = a_hat_dist.log_likelihood(a)[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
+        entropy = a_hat_dist.entropy()[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
+        act_loss = -(log_likelihood + entropy_reg * entropy)
+        losses['entropy'] = entropy
+        losses['nll'] = - log_likelihood
+        
+        loss += act_loss
+        
         return loss, losses, masked_losses, masked_c_losses, entropy
 
     def _index(self, x, use_mask):
