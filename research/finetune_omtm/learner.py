@@ -133,87 +133,7 @@ class Learner(object):
             betas=[0.9, 0.999],
         )
 
-    # def bs_planning(self, trajectory: Dict[str, torch.Tensor], h: int):
-
-    #     trajectories = {
-    #         k: v.repeat(self.cfg.beam_width, 1, 1) for k, v in trajectory.items()
-    #     }
-    #     with torch.no_grad():
-    #         for i in range(self.cfg.traj_length - h, self.cfg.traj_length):
-    #             encode = self.tokenizer_manager.encode(trajectories)
-    #             torch_rcbc_mask = create_rcbc_mask(
-    #                 self.cfg.traj_length, self.cfg.device, i
-    #             )
-    #             copied_states = trajectories["states"][:, i, :].repeat_interleave(
-    #                 self.cfg.action_samples, dim=0
-    #             )  # [beam_width*n, obs_dim]
-    #             if i > self.cfg.traj_length - h:
-    #                 copied_cum_rewards = trajectories["rewards"][
-    #                     :, self.cfg.traj_length - h : i, :
-    #                 ].sum(dim=1)
-    #             else:
-    #                 # first step of planning, no rewards, only consider value
-    #                 copied_cum_rewards = torch.zeros_like(
-    #                     trajectories["rewards"][:, i, :]
-    #                 )
-    #             copied_cum_rewards = copied_cum_rewards.repeat_interleave(
-    #                 self.cfg.action_samples, dim=0
-    #             )  # [beam_width*n, 1]
-    #             action_mean = self.tokenizer_manager.decode(
-    #                 self.mtm(encode, torch_rcbc_mask)
-    #             )["actions"][:, i, :]
-    #             sampled_actions_mean = action_mean.repeat_interleave(
-    #                 self.cfg.action_samples, dim=0
-    #             )  # [beam_width*n, action_dim]
-    #             sampled_actions = (
-    #                 sampled_actions_mean
-    #                 + self.cfg.action_noise_std
-    #                 * torch.randn(
-    #                     sampled_actions_mean.shape, device=sampled_actions_mean.device
-    #                 )
-    #             )
-    #             expected_return = copied_cum_rewards + self.cfg.discount ** (
-    #                 i - (self.cfg.traj_length - h)
-    #             ) * torch.minimum(
-    #                 self.critic1(copied_states, sampled_actions),
-    #                 self.critic2(copied_states, sampled_actions),
-    #             )
-    #             sorted_return, sorted_idx = torch.sort(
-    #                 expected_return.squeeze(-1), descending=True
-    #             )
-    #             trajectories["actions"][:, i, :] = sampled_actions[
-    #                 sorted_idx[: self.cfg.beam_width]
-    #             ]
-
-    #             if i < self.cfg.traj_length - 1:
-    #                 encode = self.tokenizer_manager.encode(trajectories)
-    #                 torch_rew_mask = create_rew_mask(
-    #                     self.cfg.traj_length, self.cfg.device, i
-    #                 )
-    #                 torch_fd_mask = create_fd_mask(
-    #                     self.cfg.traj_length, self.cfg.device, i + 1
-    #                 )
-    #                 rew_pred = self.tokenizer_manager.decode(
-    #                     self.mtm(encode, torch_rew_mask)
-    #                 )["rewards"][:, i, :]
-    #                 next_state_pred = self.tokenizer_manager.decode(
-    #                     self.mtm(encode, torch_fd_mask)
-    #                 )["states"][:, i + 1, :]
-    #                 trajectories["rewards"][:, i, :] = rew_pred
-    #                 trajectories["states"][:, i + 1, :] = next_state_pred
-
-    #         max_return = sorted_return.max(0)[0]
-    #         score = torch.exp(
-    #             self.cfg.temperature
-    #             * (sorted_return[: self.cfg.beam_width] - max_return)
-    #         )
-    #         sample_idx = torch.multinomial(score, 1)[0]
-    #         sampled_action = trajectories["actions"][
-    #             sample_idx, self.cfg.traj_length - h, :
-    #         ]
-    #         best_action = trajectories["actions"][0, self.cfg.traj_length - h, :]
-    #         return sampled_action, best_action
-
+    
     @torch.no_grad()
     def mtm_sampling(self, trajectory: Dict[str, torch.Tensor], h):
         
@@ -360,69 +280,96 @@ class Learner(object):
         masked_c_losses = {}
         encoded_batch = self.tokenizer_manager.encode(batch)
         targets = encoded_batch
-        masks = create_random_autoregressize_mask(
-            data_shapes,
-            self.cfg.mask_ratio,
-            self.cfg.traj_length,
-            self.cfg.device,
-            self.cfg.p_weights,
-        )
-        preds = self.mtm(encoded_batch, masks)
-        
-        for key in targets.keys():
-            target = targets[key]
-            pred = preds[key]
-            mask = masks[key]
-            if len(mask.shape) == 1:
-                # only along time dimension: repeat across the given dimension
-                mask = mask[:, None].repeat(1, target.shape[2])
-            elif len(mask.shape) == 2:
-                pass
+        if self.cfg.specific_mask:
+            torch_rcbc_mask = create_rcbc_mask(
+                self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - self.cfg.horizon
+            )
+            torch_fd_mask = create_fd_mask(
+                self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - self.cfg.horizon
+            )
+            action_preds = self.mtm(encoded_batch, torch_rcbc_mask)
+            a = targets["actions"].clip(-1+1e-6, 1-1e-6)
+            a_hat_dist = action_preds["actions"]
+            log_likelihood = a_hat_dist.log_likelihood(a)[:, ~torch_rcbc_mask['actions'].squeeze().to(torch.bool), :].mean()
+            entropy = a_hat_dist.entropy()[:, ~torch_rcbc_mask['actions'].squeeze().to(torch.bool), :].mean()
+            act_loss = -(log_likelihood + entropy_reg * entropy)
+            losses["actions"] = act_loss
+            
+            fd_preds = self.mtm(encoded_batch, torch_fd_mask)
+            for k in ["states", "rewards"]:
+                losses[k] = (nn.MSELoss(reduction="none")(fd_preds[k], targets[k]) * torch_fd_mask[k][None, :, None, None]).mean()
+            
+            loss = torch.sum(torch.stack(list(losses.values())))
+                
+            losses['entropy'] = entropy
+            losses['nll'] = - log_likelihood
+            
+            return loss, losses, None, None, entropy
+            
+        else:
+            masks = create_random_autoregressize_mask(
+                data_shapes,
+                self.cfg.mask_ratio,
+                self.cfg.traj_length,
+                self.cfg.device,
+                self.cfg.p_weights,
+            )
+            preds = self.mtm(encoded_batch, masks)
+            
+            for key in targets.keys():
+                target = targets[key]
+                pred = preds[key]
+                mask = masks[key]
+                if len(mask.shape) == 1:
+                    # only along time dimension: repeat across the given dimension
+                    mask = mask[:, None].repeat(1, target.shape[2])
+                elif len(mask.shape) == 2:
+                    pass
 
-            batch_size, T, P, _ = target.size()
-            if discrete_map[key]:
-                raw_loss = nn.CrossEntropyLoss(reduction="none")(
-                    pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
-                ).unsqueeze(3)
-            else:
-                if key == "actions":
-                    # sperate calc the action loss
-                    raw_loss = nn.MSELoss(reduction="none")(pred.mean, target) * mask[None, :, :, None]
-                    losses[key] = raw_loss.mean(dim=(2, 3)).mean()
-                    
-                    continue
+                batch_size, T, P, _ = target.size()
+                if discrete_map[key]:
+                    raw_loss = nn.CrossEntropyLoss(reduction="none")(
+                        pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
+                    ).unsqueeze(3)
                 else:
-                    # apply normalization
-                    raw_loss = nn.MSELoss(reduction="none")(pred, target)
-                    raw_loss = nn.MSELoss(reduction="none")(pred, target)
-                    # here not taking the masked result, all the loss is calculated
+                    if key == "actions":
+                        # sperate calc the action loss
+                        raw_loss = nn.MSELoss(reduction="none")(pred.mean, target) * mask[None, :, :, None]
+                        losses[key] = raw_loss.mean(dim=(2, 3)).mean()
+                        
+                        continue
+                    else:
+                        # apply normalization
+                        raw_loss = nn.MSELoss(reduction="none")(pred, target)
+                        raw_loss = nn.MSELoss(reduction="none")(pred, target)
+                        # here not taking the masked result, all the loss is calculated
 
-            # raw_loss shape = [batch_size, T, P, 1]
-            loss = raw_loss.mean(dim=(2, 3)).mean()
+                # raw_loss shape = [batch_size, T, P, 1]
+                loss = raw_loss.mean(dim=(2, 3)).mean()
 
-            masked_c_loss = (
-                (raw_loss * mask[None, :, :, None]).sum(dim=(1, 2, 3)) / mask.sum()
-            ).mean()
-            masked_loss = (
-                (raw_loss * (1 - mask[None, :, :, None])).sum(dim=(1, 2, 3))
-                / (1 - mask).sum()
-            ).mean()
-            losses[key] = loss
-            masked_c_losses[key] = masked_c_loss
-            masked_losses[key] = masked_loss
+                masked_c_loss = (
+                    (raw_loss * mask[None, :, :, None]).sum(dim=(1, 2, 3)) / mask.sum()
+                ).mean()
+                masked_loss = (
+                    (raw_loss * (1 - mask[None, :, :, None])).sum(dim=(1, 2, 3))
+                    / (1 - mask).sum()
+                ).mean()
+                losses[key] = loss
+                masked_c_losses[key] = masked_c_loss
+                masked_losses[key] = masked_loss
 
-        
-        loss = torch.sum(torch.stack(list(losses.values())))
-        
-        a = targets["actions"].clip(-1+1e-6, 1-1e-6)
-        a_hat_dist = preds["actions"]
-        log_likelihood = a_hat_dist.log_likelihood(a)[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
-        entropy = a_hat_dist.entropy()[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
-        act_loss = -(log_likelihood + entropy_reg * entropy)
-        losses['entropy'] = entropy
-        losses['nll'] = - log_likelihood
-        
-        loss += act_loss
+            
+            loss = torch.sum(torch.stack(list(losses.values())))
+            
+            a = targets["actions"].clip(-1+1e-6, 1-1e-6)
+            a_hat_dist = preds["actions"]
+            log_likelihood = a_hat_dist.log_likelihood(a)[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
+            entropy = a_hat_dist.entropy()[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
+            act_loss = -(log_likelihood + entropy_reg * entropy)
+            losses['entropy'] = entropy
+            losses['nll'] = - log_likelihood
+            
+            loss += act_loss
         
         return loss, losses, masked_losses, masked_c_losses, entropy
 
@@ -480,10 +427,11 @@ class Learner(object):
         log_dict = {}
         for k, l in losses.items():
             log_dict[f"train/loss_{k}"] = l
-            if k in masked_losses.keys():
-                log_dict[f"train/masked_loss_{k}"] = masked_losses[k]
-            if k in masked_c_losses.keys():
-                log_dict[f"train/masked_c_loss_{k}"] = masked_c_losses[k]
+            if masked_losses is not None:
+                if k in masked_losses.keys():
+                    log_dict[f"train/masked_loss_{k}"] = masked_losses[k]
+                if k in masked_c_losses.keys():
+                    log_dict[f"train/masked_c_loss_{k}"] = masked_c_losses[k]
 
         log_dict[f"train/loss"] = loss.item()
         log_dict["train/lr"] = self.mtm_scheduler.get_last_lr()[0]

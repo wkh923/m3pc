@@ -40,6 +40,8 @@ from research.finetune_omtm.learner import Learner
 class RunConfig:
     seed: int = 0
     """RNG seed."""
+    
+    specific_mask: bool = False
 
     traj_batch_size: int = 64
     """Batch size used during MTM training."""
@@ -404,10 +406,11 @@ def main(hydra_cfg):
             log_dict["eval/loss"] = loss.item()
             for k, v in losses.items():
                 log_dict[f"eval/loss_{k}"] = v
-            for k, v in masked_losses.items():
-                log_dict[f"eval/masked_loss_{k}"] = v
-            for k, v in masked_c_losses.items():
-                log_dict[f"eval/masked_c_loss_{k}"] = v
+            if masked_losses is not None:
+                for k, v in masked_losses.items():
+                    log_dict[f"eval/masked_loss_{k}"] = v
+                for k, v in masked_c_losses.items():
+                    log_dict[f"eval/masked_c_loss_{k}"] = v
             log_dict[f"eval/entropy"] = entropy.item()
 
             val_dict = learner.evaluate(num_episodes=10)
