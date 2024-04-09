@@ -46,7 +46,7 @@ finetune_args:
     _target_: research.finetune_omtm.finetune.RunConfig
     discount: 0.99
     seed: 1000
-    specific_mask: False
+    specific_mask: True
     traj_batch_size: 1024
     trans_batch_size: 4096
     warmup_steps: 1000
