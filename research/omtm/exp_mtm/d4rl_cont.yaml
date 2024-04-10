@@ -16,7 +16,7 @@ tokenizers:
 
 dataset:
     use_reward: True
-    env_name: "hopper-medium-v2"
+    env_name: "hopper-medium-replay-v2"
     train_val_split: 0.95
 
 wandb:
