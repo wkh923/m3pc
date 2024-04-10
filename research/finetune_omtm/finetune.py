@@ -333,8 +333,9 @@ def main(hydra_cfg):
         if cfg.mtm_update == True:
             mtm_log = learner.mtm_update(batch, data_shapes, discrete_map)
             log_dict.update(mtm_log)
-
+        
         log_dict["time/train_step"] = time.time() - start_time
+        log_dict["time/online_step"] = buffer.total_step
 
         if step % cfg.print_every == 0:
             try:

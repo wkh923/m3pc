@@ -37,6 +37,7 @@ class ReplayBuffer:
         self._mode = cfg.select_mode
         self.mtm_iter = cfg.mtm_iter_per_rollout
         self.v_iter = cfg.v_iter_per_mtm
+        self.total_step = 0
 
         # extract data from Dataset
         self.observations_raw = dataset.observations
@@ -302,6 +303,7 @@ class ReplayBuffer:
 
             current_trajectory["total_return"] = current_trajectory["rewards"].sum()
             self.p_length_list.append(current_trajectory["path_length"])
+            self.total_step += current_trajectory["path_length"]
             self.p_return_list.append(current_trajectory["total_return"])
 
             if self.cfg.filter_short_traj == True:

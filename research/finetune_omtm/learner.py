@@ -371,7 +371,7 @@ class Learner(object):
             
             loss += act_loss
         
-        return loss, losses, masked_losses, masked_c_losses, entropy
+            return loss, losses, masked_losses, masked_c_losses, entropy
 
     def compute_q_loss(self, experience):
 
