@@ -1093,7 +1093,7 @@ def _main(hydra_cfg):
                     "step": step,
                     "eval_max": dict(eval_max),
                 },
-                f"model_{step}.pt",
+                f"{hydra_cfg.dataset.env_name}_{step}.pt",
             )
             try:
                 if step > 3 * cfg.save_every:
@@ -1190,7 +1190,7 @@ def _main(hydra_cfg):
             "step": step,
             "eval_max": dict(eval_max),
         },
-        f"model_{step}.pt",
+        f"{hydra_cfg.dataset.env_name}_{step}.pt",
     )
 
 
