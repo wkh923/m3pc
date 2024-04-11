@@ -16,6 +16,7 @@ from torch.optim.lr_scheduler import LambdaLR
 import tqdm
 import wandb
 import gym
+import os
 
 
 class Learner(object):
@@ -26,10 +27,6 @@ class Learner(object):
         data_shapes,
         model_config,
         pretrain_model_path,
-        pretrain_critic1_path,
-        pretrain_critic2_path,
-        pretrain_value_path,
-        pretrain_actor_path,
         tokenizer_manager: TokenizerManager,
         discrete_map: Dict[str, torch.Tensor],
     ):
@@ -63,13 +60,6 @@ class Learner(object):
             env.action_space.shape[-1],
             cfg.critic_hidden_size,
         )
-        if self.cfg.critic_scratch is not True:
-            self.critic1.load_state_dict(torch.load(pretrain_critic1_path))
-            self.critic2.load_state_dict(torch.load(pretrain_critic2_path))
-            self.critic1_target.load_state_dict(torch.load(pretrain_critic1_path))
-            self.critic2_target.load_state_dict(torch.load(pretrain_critic2_path))
-            self.value.load_state_dict(torch.load(pretrain_value_path))
-            self.actor.load_state_dict(torch.load(pretrain_actor_path))
 
         self.critic2.to(cfg.device)
         self.critic1.to(cfg.device)
@@ -89,14 +79,8 @@ class Learner(object):
         self.eps = 1e-5
 
         def _schedule(step):
-            # warmp for 1000 steps
-            if step < self.cfg.warmup_steps:
-                return step / cfg.warmup_steps
-
-            # then cosine decay
-            assert self.cfg.num_train_steps > self.cfg.warmup_steps
             return 0.5 * (
-                1 + np.cos(step / (cfg.num_train_steps - cfg.warmup_steps) * np.pi)
+                1 + np.cos(step / cfg.num_train_steps * np.pi)
             )
 
         self.mtm_scheduler = LambdaLR(self.mtm_optimizer, lr_lambda=_schedule)
@@ -171,13 +155,13 @@ class Learner(object):
     @torch.no_grad()
     def critic_lambda_guiding(self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float):
         
-        trajectory_batch = {k: v.repeat(1024, 1, 1) for k, v in trajectory.items()}
+        trajectory_batch = {k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()}
         encode = self.tokenizer_manager.encode(trajectory)
         torch_rcbc_mask = create_rcbc_mask(
             self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
         )
         action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))["actions"] # dist of shape(1, seq_len, act_dim)
-        sample_actions = action_dist.sample((1024,))[:, 0, self.cfg.traj_length - h:, 0, :] #(1024, h, act_dim)
+        sample_actions = action_dist.sample((self.cfg.action_samples,))[:, 0, self.cfg.traj_length - h:, 0, :] #(1024, h, act_dim)
         trajectory_batch['actions'][:, self.cfg.traj_length - h:, :] = sample_actions
         torch_fd_mask = create_fd_mask(
             self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
@@ -186,9 +170,9 @@ class Learner(object):
         decode = self.tokenizer_manager.decode(self.mtm(encode_batch, torch_fd_mask))
         future_states = decode["states"][:, self.cfg.traj_length - h :, :] #(1024, h, state_dim)
         future_rewards = decode["rewards"][:, self.cfg.traj_length - h :, :] #(1024, h, 1)
-        expect_return = torch.zeros((1024,), device=self.cfg.device)
+        expect_return = torch.zeros((self.cfg.action_samples,), device=self.cfg.device)
         for t in range(h):
-            values = torch.zeros((1024, t+1), device=self.cfg.device)
+            values = torch.zeros((self.cfg.action_samples, t+1), device=self.cfg.device)
             discounts = torch.cumprod(self.cfg.discount * torch.ones((t+1,), device=self.cfg.device), dim=0)
             if t > 0:
                 values[:, :t] = future_rewards[:, :t, 0]
@@ -280,83 +264,57 @@ class Learner(object):
         masked_c_losses = {}
         encoded_batch = self.tokenizer_manager.encode(batch)
         targets = encoded_batch
-        if self.cfg.specific_mask:
-            torch_rcbc_mask = create_rcbc_mask(
-                self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - self.cfg.horizon
-            )
-            torch_fd_mask = create_fd_mask(
-                self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - self.cfg.horizon
-            )
-            action_preds = self.mtm(encoded_batch, torch_rcbc_mask)
-            a = targets["actions"].clip(-1+1e-6, 1-1e-6)
-            a_hat_dist = action_preds["actions"]
-            log_likelihood = a_hat_dist.log_likelihood(a)[:, ~torch_rcbc_mask['actions'].squeeze().to(torch.bool), :].mean()
-            entropy = a_hat_dist.entropy()[:, ~torch_rcbc_mask['actions'].squeeze().to(torch.bool), :].mean()
-            act_loss = -(log_likelihood + entropy_reg * entropy)
-            losses["actions"] = act_loss
-            
-            fd_preds = self.mtm(encoded_batch, torch_fd_mask)
-            for k in ["states", "rewards"]:
-                losses[k] = (nn.MSELoss(reduction="none")(fd_preds[k], targets[k]) * torch_fd_mask[k][None, :, None, None]).mean()
-            
-            loss = torch.sum(torch.stack(list(losses.values())))
-                
-            losses['entropy'] = entropy
-            losses['nll'] = - log_likelihood
-            
-            return loss, losses, None, None, entropy
-            
-        else:
-            masks = create_random_autoregressize_mask(
-                data_shapes,
-                self.cfg.mask_ratio,
-                self.cfg.traj_length,
-                self.cfg.device,
-                self.cfg.p_weights,
-            )
-            preds = self.mtm(encoded_batch, masks)
-            
-            for key in targets.keys():
-                target = targets[key]
-                pred = preds[key]
-                mask = masks[key]
-                if len(mask.shape) == 1:
-                    # only along time dimension: repeat across the given dimension
-                    mask = mask[:, None].repeat(1, target.shape[2])
-                elif len(mask.shape) == 2:
-                    pass
+        
+        masks = create_random_autoregressize_mask(
+            data_shapes,
+            self.cfg.mask_ratio,
+            self.cfg.traj_length,
+            self.cfg.device,
+            self.cfg.p_weights,
+        )
+        preds = self.mtm(encoded_batch, masks)
+        
+        for key in targets.keys():
+            target = targets[key]
+            pred = preds[key]
+            mask = masks[key]
+            if len(mask.shape) == 1:
+                # only along time dimension: repeat across the given dimension
+                mask = mask[:, None].repeat(1, target.shape[2])
+            elif len(mask.shape) == 2:
+                pass
 
-                batch_size, T, P, _ = target.size()
-                if discrete_map[key]:
-                    raw_loss = nn.CrossEntropyLoss(reduction="none")(
-                        pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
-                    ).unsqueeze(3)
+            batch_size, T, P, _ = target.size()
+            if discrete_map[key]:
+                raw_loss = nn.CrossEntropyLoss(reduction="none")(
+                    pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
+                ).unsqueeze(3)
+            else:
+                if key == "actions":
+                    # sperate calc the action loss
+                    raw_loss = nn.MSELoss(reduction="none")(pred.mean, target) * mask[None, :, :, None]
+                    losses[key] = raw_loss.mean(dim=(2, 3)).mean()
+                    
+                    continue
                 else:
-                    if key == "actions":
-                        # sperate calc the action loss
-                        raw_loss = nn.MSELoss(reduction="none")(pred.mean, target) * mask[None, :, :, None]
-                        losses[key] = raw_loss.mean(dim=(2, 3)).mean()
-                        
-                        continue
-                    else:
-                        # apply normalization
-                        raw_loss = nn.MSELoss(reduction="none")(pred, target)
-                        raw_loss = nn.MSELoss(reduction="none")(pred, target)
-                        # here not taking the masked result, all the loss is calculated
+                    # apply normalization
+                    raw_loss = nn.MSELoss(reduction="none")(pred, target)
+                    raw_loss = nn.MSELoss(reduction="none")(pred, target)
+                    # here not taking the masked result, all the loss is calculated
 
-                # raw_loss shape = [batch_size, T, P, 1]
-                loss = raw_loss.mean(dim=(2, 3)).mean()
+            # raw_loss shape = [batch_size, T, P, 1]
+            loss = raw_loss.mean(dim=(2, 3)).mean()
 
-                masked_c_loss = (
-                    (raw_loss * mask[None, :, :, None]).sum(dim=(1, 2, 3)) / mask.sum()
-                ).mean()
-                masked_loss = (
-                    (raw_loss * (1 - mask[None, :, :, None])).sum(dim=(1, 2, 3))
-                    / (1 - mask).sum()
-                ).mean()
-                losses[key] = loss
-                masked_c_losses[key] = masked_c_loss
-                masked_losses[key] = masked_loss
+            masked_c_loss = (
+                (raw_loss * mask[None, :, :, None]).sum(dim=(1, 2, 3)) / mask.sum()
+            ).mean()
+            masked_loss = (
+                (raw_loss * (1 - mask[None, :, :, None])).sum(dim=(1, 2, 3))
+                / (1 - mask).sum()
+            ).mean()
+            losses[key] = loss
+            masked_c_losses[key] = masked_c_loss
+            masked_losses[key] = masked_loss
 
             
             loss = torch.sum(torch.stack(list(losses.values())))
@@ -427,11 +385,11 @@ class Learner(object):
         log_dict = {}
         for k, l in losses.items():
             log_dict[f"train/loss_{k}"] = l
-            if masked_losses is not None:
-                if k in masked_losses.keys():
-                    log_dict[f"train/masked_loss_{k}"] = masked_losses[k]
-                if k in masked_c_losses.keys():
-                    log_dict[f"train/masked_c_loss_{k}"] = masked_c_losses[k]
+            
+            if k in masked_losses.keys():
+                log_dict[f"train/masked_loss_{k}"] = masked_losses[k]
+            if k in masked_c_losses.keys():
+                log_dict[f"train/masked_c_loss_{k}"] = masked_c_losses[k]
 
         log_dict[f"train/loss"] = loss.item()
         log_dict["train/lr"] = self.mtm_scheduler.get_last_lr()[0]
