@@ -41,6 +41,8 @@ class ReplayBuffer:
 
         # extract data from Dataset
         self.observations_raw = dataset.observations
+        self.obs_mean = self.observations_raw.mean(axis=0)
+        self.obs_std = self.observations_raw.std(axis=0)
         self.actions_raw = dataset.actions
         self.rewards_raw = dataset.rewards.reshape(-1, 1)
         self.terminals_raw = dataset.dones_float
@@ -376,8 +378,8 @@ class ReplayBuffer:
         if len(self.online_trans_buffer) < self.cfg.using_online_threshold:
             experiences = random.sample(self.offline_trans_buffer, k=self.trans_batch_size)
         else:
-            online_experiences = random.sample(self.online_trans_buffer, k=self.trans_batch_size/2)
-            offline_experiences = random.sample(self.offline_trans_buffer, k=self.trans_batch_size/2)
+            online_experiences = random.sample(self.online_trans_buffer, k=self.trans_batch_size//2)
+            offline_experiences = random.sample(self.offline_trans_buffer, k=(self.trans_batch_size - self.trans_batch_size//2))
             experiences = online_experiences + offline_experiences
 
         states = (

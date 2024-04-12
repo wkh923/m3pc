@@ -1,5 +1,5 @@
 from research.finetune_omtm.masks import *
-from research.finetune_omtm.model import Critic, Value, Actor
+from research.finetune_omtm.model import *
 from research.omtm.models.mtm_model import omtm
 from research.omtm.tokenizers.base import TokenizerManager
 from research.omtm.datasets.sequence_dataset import Trajectory
@@ -27,48 +27,21 @@ class Learner(object):
         data_shapes,
         model_config,
         pretrain_model_path,
+        obs_mean,
+        obs_std,
         tokenizer_manager: TokenizerManager,
         discrete_map: Dict[str, torch.Tensor],
     ):
         self.cfg = cfg
         self.env = env
         self.mtm = model_config.create(data_shapes, cfg.traj_length, discrete_map)
-        self.mtm.load_state_dict(torch.load(pretrain_model_path)["model"])
+        self.mtm.load_state_dict(torch.load(pretrain_model_path, map_location=cfg.device)["model"])
         self.mtm.to(cfg.device)
-        self.critic1 = Critic(
-            env.observation_space.shape[-1],
-            env.action_space.shape[-1],
-            cfg.critic_hidden_size,
-        )
-        self.critic2 = Critic(
-            env.observation_space.shape[-1],
-            env.action_space.shape[-1],
-            cfg.critic_hidden_size,
-        )
-        self.critic1_target = Critic(
-            env.observation_space.shape[-1],
-            env.action_space.shape[-1],
-            cfg.critic_hidden_size,
-        )
-        self.critic2_target = Critic(
-            env.observation_space.shape[-1],
-            env.action_space.shape[-1],
-            cfg.critic_hidden_size,
-        )
-        self.value = Value(env.observation_space.shape[-1], cfg.critic_hidden_size)
-        self.actor = Actor(env.observation_space.shape[-1],
-            env.action_space.shape[-1],
-            cfg.critic_hidden_size,
-        )
-
-        self.critic2.to(cfg.device)
-        self.critic1.to(cfg.device)
-        self.critic1_target.to(cfg.device)
-        self.critic2_target.to(cfg.device)
-        self.value.to(cfg.device)
-        self.actor.to(cfg.device)
+        
 
         self.tokenizer_manager = tokenizer_manager
+        self.obs_mean = obs_mean
+        self.obs_std = obs_std
         self.discrete_map = discrete_map
         self.mtm_optimizer = omtm.configure_optimizers(
             self.mtm,
@@ -84,38 +57,44 @@ class Learner(object):
             )
 
         self.mtm_scheduler = LambdaLR(self.mtm_optimizer, lr_lambda=_schedule)
-
-        self.critic1_optimizer = torch.optim.Adam(
-            self.critic1.parameters(),
-            lr=self.cfg.critic_lr,
-            weight_decay=self.cfg.weight_decay,
-            betas=(0.9, 0.999),
-        )
-
-        self.critic2_optimizer = torch.optim.Adam(
-            self.critic2.parameters(),
-            lr=self.cfg.critic_lr,
-            weight_decay=self.cfg.weight_decay,
-            betas=(0.9, 0.999),
-        )
-
-        self.value_optimizer = torch.optim.Adam(
-            self.value.parameters(),
-            lr=self.cfg.v_lr,
-            weight_decay=self.cfg.weight_decay,
-            betas=(0.9, 0.999),
-        )
-        self.actor_optimizer = torch.optim.Adam(
-            self.actor.parameters(),
-            lr=self.cfg.v_lr,
-            weight_decay=self.cfg.weight_decay,
-            betas=(0.9, 0.999),
-        )
         self.temp_optimizer = torch.optim.Adam(
             [self.mtm.log_temperature],
             lr=1e-4,
             betas=[0.9, 0.999],
         )
+        
+        state_dim = self.env.observation_space.shape[0]
+        action_dim = self.env.action_space.shape[0]
+        
+        q_network = TwinQ(state_dim, action_dim, self.obs_mean, self.obs_std).to(self.cfg.device)
+        v_network = ValueFunction(state_dim, self.obs_mean, self.obs_std).to(self.cfg.device)
+        actor = (
+            GaussianPolicy(
+                state_dim, action_dim, float(self.env.action_space.high[0]), obs_mean=self.obs_mean, obs_std=self.obs_std, dropout=0.
+            )
+        ).to(self.cfg.device)
+        
+        v_optimizer = torch.optim.Adam(v_network.parameters(), lr=self.cfg.v_lr)
+        q_optimizer = torch.optim.Adam(q_network.parameters(), lr=self.cfg.critic_lr)
+        actor_optimizer = torch.optim.Adam(actor.parameters(), lr=self.cfg.v_lr)
+        iql_kwargs = {
+            "max_action": float(self.env.action_space.high[0]),
+            "actor": actor,
+            "actor_optimizer": actor_optimizer,
+            "q_network": q_network,
+            "q_optimizer": q_optimizer,
+            "v_network": v_network,
+            "v_optimizer": v_optimizer,
+            "discount": self.cfg.discount,
+            "tau": self.cfg.tau,
+            "device": self.cfg.device,
+            # IQL
+            "beta": 0.3,
+            "iql_tau": self.cfg.expectile,
+            "max_steps": self.cfg.num_train_steps * self.cfg.v_iter_per_mtm + self.cfg.warmup_steps,
+        }
+        self.iql = ImplicitQLearning(**iql_kwargs)
+        
 
     
     @torch.no_grad()
@@ -142,7 +121,7 @@ class Learner(object):
         action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))["actions"] # dist of shape(1, seq_len, act_dim)
         sample_actions = action_dist.sample((30,))[:, 0, self.cfg.traj_length - h, 0, :] #(30, act_dim)
         sample_states = cur_state.repeat(30, 1)
-        values = torch.min(self.critic1(sample_states, sample_actions), self.critic2(sample_states, sample_actions)).squeeze(-1)
+        values = self.iql.qf(sample_states, sample_actions).squeeze(-1)
         values -= torch.max(values)
         p = torch.exp(values) / torch.exp(values).sum()
         sample_idx = torch.multinomial(p, 1)
@@ -176,8 +155,7 @@ class Learner(object):
             discounts = torch.cumprod(self.cfg.discount * torch.ones((t+1,), device=self.cfg.device), dim=0)
             if t > 0:
                 values[:, :t] = future_rewards[:, :t, 0]
-            values[:, t] = torch.min(self.critic1(future_states[:, t], sample_actions[:, t]), 
-                                  self.critic2(future_states[:, t], sample_actions[:, t])).squeeze(-1)
+            values[:, t] = self.iql.qf(future_states[:, t], sample_actions[:, t]).squeeze(-1)
             values *= discounts[None, :]
             if t < h - 1:
                 expect_return += values.sum(dim=-1) * (1 - lmbda) * (lmbda ** t)
@@ -330,53 +308,7 @@ class Learner(object):
             loss += act_loss
         
             return loss, losses, masked_losses, masked_c_losses, entropy
-
-    def compute_q_loss(self, experience):
-
-        states, actions, rewards, next_states, dones = experience
-
-        with torch.no_grad():
-            next_v = self.value(next_states) * (1 - dones)
-            target_q_values = rewards + self.cfg.discount * next_v
-
-        q1 = self.critic1(states, actions)
-        q2 = self.critic2(states, actions)
-        critic1_loss = ((q1 - target_q_values) ** 2).mean()
-        critic2_loss = ((q2 - target_q_values) ** 2).mean()
-
-        return critic1_loss, critic2_loss
-
-    def compute_value_loss(self, experience):
-
-        states, actions, rewards, next_states, dones = experience
-
-        with torch.no_grad():
-            q1 = self.critic1_target(states, actions)
-            q2 = self.critic2_target(states, actions)
-            min_Q = torch.min(q1, q2) * (1 - dones)
-
-        value = self.value(states)
-        value_loss = loss(min_Q - value, self.cfg.expectile).mean()
-
-        return value_loss
     
-    def compute_policy_loss(self, experience):
-        
-        states, actions, rewards, next_states, dones = experience
-        with torch.no_grad():
-            v = self.value(states)
-            q1 = self.critic1_target(states, actions)
-            q2 = self.critic2_target(states, actions)
-            min_Q = torch.min(q1,q2)
-
-        exp_a = torch.exp((min_Q - v) * 3)
-        exp_a = torch.min(exp_a, torch.FloatTensor([100.0]).to(states.device))
-
-        _, dist = self.actor.evaluate(states)
-        log_probs = dist.log_prob(actions)
-        actor_loss = -(exp_a * log_probs).mean()
-
-        return actor_loss
 
     def mtm_update(self, batch, data_shapes, discrete_map):
         loss, losses, masked_losses, masked_c_losses, entropy = self.compute_mtm_loss(
@@ -411,64 +343,12 @@ class Learner(object):
         return log_dict
 
     def critic_update(self, experience: Tuple[torch.Tensor]):
-        critic1_loss, critic2_loss = self.compute_q_loss(experience)
-
-        log_dict = {}
-
-        log_dict[f"train/q1_loss"] = critic1_loss.item()
-        log_dict[f"train/q2_loss"] = critic2_loss.item()
-
-        # backprop
-        self.critic1.zero_grad(set_to_none=True)
-        self.critic2.zero_grad(set_to_none=True)
-        critic1_loss.backward()
-        critic2_loss.backward()
-
-        self.critic1_optimizer.step()
-        self.critic2_optimizer.step()
-
-        return log_dict
-
-    def value_update(self, experience: Tuple[torch.Tensor]):
-
-        value_loss = self.compute_value_loss(experience)
-
-        log_dict = {}
-        log_dict[f"train/v_loss"] = value_loss
-        self.value.zero_grad(set_to_none=True)
-        value_loss.backward()
-        self.value_optimizer.step()
-
-        return log_dict
-    
-    def policy_update(self, experience: Tuple[torch.Tensor]):
         
-        policy_loss = self.compute_policy_loss(experience)
-        
-        log_dict = {}
-        log_dict[f"train/policy_loss"] = policy_loss
-        self.actor.zero_grad(set_to_none=True)
-        policy_loss.backward()
-        self.actor_optimizer.step()
+        log_dict = self.iql.train(experience)
 
         return log_dict
 
-    def critic_target_soft_update(self):
-
-        for target_param, param in zip(
-            self.critic1_target.parameters(), self.critic1.parameters()
-        ):
-            target_param.data.copy_(
-                self.cfg.tau * param.data + (1.0 - self.cfg.tau) * target_param.data
-            )
-
-        for target_param, param in zip(
-            self.critic2_target.parameters(), self.critic2.parameters()
-        ):
-            target_param.data.copy_(
-                self.cfg.tau * param.data + (1.0 - self.cfg.tau) * target_param.data
-            )
-
+    @torch.no_grad()
     def evaluate(
         self,
         num_episodes: int,
@@ -566,6 +446,7 @@ class Learner(object):
 
         return log_data
     
+    torch.no_grad()
     def evaluate_policy(
         self,
         num_episodes: int,
@@ -593,9 +474,7 @@ class Learner(object):
 
             timestep = 0
             while not done and timestep < 1000:
-                obs = torch.from_numpy(observation).float().to(self.cfg.device)
-                action = self.actor.get_det_action(obs)
-                action = action.numpy()
+                action = self.iql.actor.act(observation, self.cfg.device)
                 new_observation, reward, done, info = self.env.step(action)
                 observation = new_observation
                 timestep += 1

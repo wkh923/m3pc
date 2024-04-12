@@ -194,12 +194,15 @@ def main(hydra_cfg):
             for k, v in hydra_cfg.tokenizers.items()
         }
     tokenizer_manager = TokenizerManager(tokenizers).to(cfg.device)
+    
     discrete_map: Dict[str, bool] = {}
     for k, v in tokenizers.items():
         discrete_map[k] = v.discrete
     logger.info(f"Tokenizers: {tokenizers}")
 
     buffer = ReplayBuffer(cfg, train_raw_dataset, cfg.pretrain_discount)
+    obs_mean = torch.tensor(buffer.obs_mean, device=cfg.device)
+    obs_std = torch.tensor(buffer.obs_std, device=cfg.device)
     dataloader = iter(buffer)
     batch_example = next(dataloader)
 
@@ -209,33 +212,32 @@ def main(hydra_cfg):
 
     print(f"Data shapes: {data_shapes}")
     logger.info(f"Data shapes: {data_shapes}")
-
+    
     learner = Learner(
         cfg,
         env,
         data_shapes,
         model_config,
         pretrain_model_path,
+        obs_mean,
+        obs_std,
         tokenizer_manager,
         discrete_map,
     )
     
-    if cfg.warmup_steps > 0:
+    # if cfg.warmup_steps > 0:
         
-        logger.info(f"starting from critic warming up")
-        for i in range(cfg.warmup_steps):
-            experiences = buffer.trans_sample()
-            value_log = learner.value_update(experiences)
-            critic_log = learner.critic_update(experiences)
-            policy_log = learner.policy_update(experiences)
-            learner.critic_target_soft_update()
-            if i % 10000 == 0:
-                val_dict = learner.evaluate_policy(num_episodes=10)
-                print(val_dict)
+    #     for i in range(cfg.warmup_steps * 10):
+    #         batch = buffer.trans_sample()
+    #         critic_log = learner.critic_update(batch)
+            
+    #         if i % 5000 == 0:
+                
+    #             learner.iql.actor.eval()
+    #             learner.evaluate_policy(num_episodes=10)
+    #             learner.iql.actor.train()
         
-        torch.save(learner.critic1.state_dict(),f"init_critic1.pt")
-        torch.save(learner.critic2.state_dict(),f"init_critic2.pt")
-        torch.save(learner.value.state_dict(),f"init_value.pt")
+    #     torch.save(learner.iql.state_dict(),f"init_iql.pt")
 
     # create a wandb logger and log params of interest
     wandb_cfg_log_dict = OmegaConf.to_container(hydra_cfg)
@@ -269,6 +271,20 @@ def main(hydra_cfg):
             experiment_id=exp_id,
         )
     wandb_logger = WandBLogger(wandb_cfg_log, wandb_cfg_log_dict)
+    
+    if cfg.warmup_steps > 0:
+        
+        for i in range(cfg.warmup_steps * 10):
+            batch = buffer.trans_sample()
+            critic_log = learner.critic_update(batch)
+            
+            if i % 5000 == 0:
+                
+                learner.iql.actor.eval()
+                learner.evaluate_policy(num_episodes=10)
+                learner.iql.actor.train()
+        
+        torch.save(learner.iql.state_dict(),f"init_iql.pt")
 
     step = 0
     
@@ -284,14 +300,9 @@ def main(hydra_cfg):
 
         for critic_iter in range(cfg.v_iter_per_mtm):
             experiences = buffer.trans_sample()
-            value_log = learner.value_update(experiences)
             critic_log = learner.critic_update(experiences)
-            policy_log = learner.policy_update(experiences)
-            learner.critic_target_soft_update()
             
         log_dict.update(critic_log)
-        log_dict.update(value_log)
-        log_dict.update(policy_log)
             
         try:
             batch = next(dataloader)
@@ -328,27 +339,23 @@ def main(hydra_cfg):
                 },
                 f"mtm_{step}.pt",
             )
-            torch.save(learner.critic1.state_dict(),f"critic1_{step}.pt")
-            torch.save(learner.critic2.state_dict(),f"critic2_{step}.pt")
-            torch.save(learner.value.state_dict(),f"value_{step}.pt")
+            torch.save(learner.iql.state_dict(),f"iql_{step}.pt")
 
             try:
                 if step > 3 * cfg.save_every:
                     remove_step = step - 3 * cfg.save_every
                     if (remove_step // cfg.save_every) % 10 != 0:
                         os.remove(f"mtm_{remove_step}.pt")
-                        os.remove(f"critic1_{remove_step}.pt")
-                        os.remove(f"critic2_{remove_step}.pt")
-                        os.remove(f"value_{remove_step}.pt")
+                        os.remove(f"iql_{remove_step}.pt")
             except Exception as e:
                 logger.error(f"Failed to remove model file! {e}")
 
         if step % cfg.eval_every == 0:
             start_time = time.time()
             learner.mtm.eval()
-            learner.critic1.eval()
-            learner.critic2.eval()
-            learner.value.eval()
+            learner.iql.qf.eval()
+            learner.iql.vf.eval()
+            learner.iql.actor.eval()
 
             val_batch = next(iter(val_loader))
             val_batch = {
@@ -371,9 +378,9 @@ def main(hydra_cfg):
             val_dict.update(learner.evaluate_policy(num_episodes=10))
 
             learner.mtm.train()
-            learner.critic1.train()
-            learner.critic2.train()
-            learner.value.train()
+            learner.iql.qf.train()
+            learner.iql.vf.train()
+            learner.iql.actor.train()
             val_dict["time/eval_step_time"] = time.time() - start_time
 
             explore_return_hist = np.histogram(
@@ -415,10 +422,7 @@ def main(hydra_cfg):
         },
         f"mtm_{step}.pt",
     )
-    torch.save(learner.critic1.state_dict(),f"critic1_{step}.pt")
-    torch.save(learner.critic2.state_dict(),f"critic2_{step}.pt")
-    torch.save(learner.value.state_dict(),f"value_{step}.pt")
-
+    torch.save(learner.iql.state_dict(),f"iql_{step}.pt")
 
 @hydra.main(config_path=".", config_name="config", version_base="1.1")
 def configure_jobs(hydra_data: DictConfig) -> None:
