@@ -45,7 +45,7 @@ research/exorl/data/
 research/exorl/datasets/
 
 # iql
-research/Implicit
+# research/Implicit
 research/Implicit-Q-Learning/imgs
 research/Implicit-Q-Learning/trained_models
 research/Implicit-Q-Learning/wandb

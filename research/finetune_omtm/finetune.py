@@ -229,6 +229,9 @@ def main(hydra_cfg):
             critic_log = learner.critic_update(experiences)
             policy_log = learner.policy_update(experiences)
             learner.critic_target_soft_update()
+            if i % 10000 == 0:
+                val_dict = learner.evaluate_policy(num_episodes=10)
+                print(val_dict)
         
         torch.save(learner.critic1.state_dict(),f"init_critic1.pt")
         torch.save(learner.critic2.state_dict(),f"init_critic2.pt")

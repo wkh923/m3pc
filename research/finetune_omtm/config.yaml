@@ -43,13 +43,13 @@ finetune_args:
     discount: 0.99
     seed: 0
     traj_batch_size: 1024
-    trans_batch_size: 1024
+    trans_batch_size: 256
     using_online_threshold: 5000
     warmup_steps: 100000
     num_train_steps: 90000
     learning_rate: 1e-4
-    critic_lr: 1e-4
-    v_lr: 1e-4
+    critic_lr: 3e-4
+    v_lr: 3e-4
     weight_decay: 5e-3
     device: cuda
     mtm_iter_per_rollout: 200
@@ -72,7 +72,7 @@ finetune_args:
     rtg_percent: 1.0 # [0.8 1.0]
     plan_guidance: "critic_lambda_guiding" # [critic_guiding, critic_lambda_guiding]
     lmbda: 0.9
-    expectile: 0.8
+    expectile: 0.7
     horizon: 4
     action_samples: 1024
     temperature: 1.0
@@ -80,7 +80,7 @@ finetune_args:
     #replay buffer
     traj_buffer_size: 1000
     trans_buffer_size: 1000000 # 200000
-    buffer_init_ratio: 0.2
+    buffer_init_ratio: 1.0
     pretrain_discount: 1.5
     clip_min: -1.0
     clip_max: 1.0
