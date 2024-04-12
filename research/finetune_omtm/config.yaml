@@ -73,7 +73,7 @@ finetune_args:
     plan_guidance: "critic_lambda_guiding" # [critic_guiding, critic_lambda_guiding]
     lmbda: 0.9
     expectile: 0.7
-    horizon: 1
+    horizon: 4
     action_samples: 1024
     temperature: 1.0
 

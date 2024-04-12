@@ -274,11 +274,11 @@ def main(hydra_cfg):
     
     if cfg.warmup_steps > 0:
         
-        for i in range(cfg.warmup_steps * 10):
+        for i in range(cfg.warmup_steps):
             batch = buffer.trans_sample()
             critic_log = learner.critic_update(batch)
             
-            if i % 5000 == 0:
+            if i % 10000 == 0:
                 
                 learner.iql.actor.eval()
                 learner.evaluate_policy(num_episodes=10)
