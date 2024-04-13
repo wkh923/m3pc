@@ -35,7 +35,7 @@ class Learner(object):
         self.cfg = cfg
         self.env = env
         self.mtm = model_config.create(data_shapes, cfg.traj_length, discrete_map)
-        self.mtm.load_state_dict(torch.load(pretrain_model_path, map_location=cfg.device)["model"])
+        self.mtm.load_state_dict(torch.load(pretrain_model_path, map_location="cpu")["model"])
         self.mtm.to(cfg.device)
         
 

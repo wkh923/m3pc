@@ -166,7 +166,7 @@ class ReplayBuffer:
         self.rewards_segmented = self.rewards_segmented[keep_idx]
         self.values_segmented = self.values_segmented[keep_idx]
         self.trajectory_returns = self.trajectory_returns[keep_idx]
-        self.p = self.trajectory_returns / self.trajectory_returns.sum(axis=0)
+        self.p = self.path_lengths / self.path_lengths.sum(axis=0)
         self.p_length_list = []
         self.p_return_list = []
 
@@ -315,7 +315,7 @@ class ReplayBuffer:
             (self.trajectory_returns[num_new_trajectories:], new_trajectory_returns),
             axis=0,
         )
-        self.p = self.trajectory_returns / self.trajectory_returns.sum(axis=0)
+        self.p = self.path_lengths / self.path_lengths.sum(axis=0)
 
     def traj_sample(self):
         """Sample a batch of trajectories from the replay buffer.
