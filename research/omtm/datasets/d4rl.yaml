@@ -4,5 +4,5 @@ seq_steps: ???
 env_name: "hopper-medium-v2"
 use_reward: True
 seed: 0
-discount: 1.5
+discount: 1.0
 train_val_split: 0.95
