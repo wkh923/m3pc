@@ -371,86 +371,86 @@ class Learner(object):
         log_data = {}
 
         
-            
-        stats: Dict[str, Any] = defaultdict(list)
-        successes = None
-        for i in range(num_episodes):
-            current_trajectory = {
-                "observations": np.zeros(
-                    (1000, self.env.observation_space.shape[0]), dtype=np.float32
-                ),
-                "actions": np.zeros(
-                    (1000, self.env.action_space.shape[0]), dtype=np.float32
-                ),
-                "rewards": np.zeros((1000, 1), dtype=np.float32),
-                "values": np.zeros((1000, 1), dtype=np.float32),
-                "total_return": 0,
-                "path_length": 0,
-            }
+        for ratio in [0.8, 0.9, 1.0]:    
+            stats: Dict[str, Any] = defaultdict(list)
+            successes = None
+            for i in range(num_episodes):
+                current_trajectory = {
+                    "observations": np.zeros(
+                        (1000, self.env.observation_space.shape[0]), dtype=np.float32
+                    ),
+                    "actions": np.zeros(
+                        (1000, self.env.action_space.shape[0]), dtype=np.float32
+                    ),
+                    "rewards": np.zeros((1000, 1), dtype=np.float32),
+                    "values": np.zeros((1000, 1), dtype=np.float32),
+                    "total_return": 0,
+                    "path_length": 0,
+                }
 
-            observation, done = self.env.reset(), False
-            # if len(videos) < num_videos:
-            #     try:
-            #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
-            #     except:
-            #         imgs = [self.env.render()[::-1]]
-
-            timestep = 0
-            while not done and timestep < 1000:
-                current_trajectory["observations"][timestep] = observation
-                action, _ = self.action_sample(
-                    current_trajectory, percentage=1.0, plan=False, eval=True, rtg=episode_rtg_ref[timestep]
-                )
-                action = np.clip(action.cpu().numpy(), -1, 1)
-                new_observation, reward, done, info = self.env.step(action)
-                current_trajectory["actions"][timestep] = action
-                current_trajectory["rewards"][timestep] = reward
-                observation = new_observation
-                timestep += 1
-                current_trajectory["path_length"] += 1
+                observation, done = self.env.reset(), False
                 # if len(videos) < num_videos:
                 #     try:
-                #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
+                #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
                 #     except:
-                #         imgs.append(self.env.render()[::-1])
+                #         imgs = [self.env.render()[::-1]]
 
-            # if len(videos) < num_videos:
-            #     videos.append(np.array(imgs[:-1]))
+                timestep = 0
+                while not done and timestep < 1000:
+                    current_trajectory["observations"][timestep] = observation
+                    action, _ = self.action_sample(
+                        current_trajectory, percentage=1.0, plan=False, eval=True, rtg=episode_rtg_ref[timestep] * ratio
+                    )
+                    action = np.clip(action.cpu().numpy(), -1, 1)
+                    new_observation, reward, done, info = self.env.step(action)
+                    current_trajectory["actions"][timestep] = action
+                    current_trajectory["rewards"][timestep] = reward
+                    observation = new_observation
+                    timestep += 1
+                    current_trajectory["path_length"] += 1
+                    # if len(videos) < num_videos:
+                    #     try:
+                    #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
+                    #     except:
+                    #         imgs.append(self.env.render()[::-1])
 
-            if "episode" in info:
-                for k in info["episode"].keys():
-                    stats[k].append(float(info["episode"][k]))
-                    if verbose:
-                        print(f"{k}:{info['episode'][k]}")
+                # if len(videos) < num_videos:
+                #     videos.append(np.array(imgs[:-1]))
 
-                ret = info["episode"]["return"]
-                mean = np.mean(stats["return"])
-                if "is_success" in info:
-                    if successes is None:
-                        successes = 0.0
-                    successes += info["is_success"]
+                if "episode" in info:
+                    for k in info["episode"].keys():
+                        stats[k].append(float(info["episode"][k]))
+                        if verbose:
+                            print(f"{k}:{info['episode'][k]}")
 
-            else:
-                stats["return"].append(current_trajectory["rewards"].sum())
-                stats["length"].append(current_trajectory["path_length"])
+                    ret = info["episode"]["return"]
+                    mean = np.mean(stats["return"])
+                    if "is_success" in info:
+                        if successes is None:
+                            successes = 0.0
+                        successes += info["is_success"]
 
-        new_stats = {}
-        for k, v in stats.items():
-            new_stats[k + "_mean"] = float(np.mean(v))
-            new_stats[k + "_std"] = float(np.std(v))
+                else:
+                    stats["return"].append(current_trajectory["rewards"].sum())
+                    stats["length"].append(current_trajectory["path_length"])
 
-        if all_results:
-            new_stats.update(stats)
-        stats = new_stats
-        if successes is not None:
-            stats["success"] = successes / num_episodes
+            new_stats = {}
+            for k, v in stats.items():
+                new_stats[k + "_mean"] = float(np.mean(v))
+                new_stats[k + "_std"] = float(np.std(v))
 
-        for k, v in stats.items():
-            log_data[f"eval_bc/{k}"] = v
-        # for idx, v in enumerate(videos):
-        #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
-        #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
-        #     )
+            if all_results:
+                new_stats.update(stats)
+            stats = new_stats
+            if successes is not None:
+                stats["success"] = successes / num_episodes
+
+            for k, v in stats.items():
+                log_data[f"eval_bc_{ratio}/{k}"] = v
+            # for idx, v in enumerate(videos):
+            #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
+            #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
+            #     )
 
         return log_data, stats["return_mean"]
     
