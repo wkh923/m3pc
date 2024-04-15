@@ -374,7 +374,7 @@ def main(hydra_cfg):
                 log_dict[f"eval/masked_c_loss_{k}"] = v
             log_dict[f"eval/entropy"] = entropy.item()
 
-            val_dict = learner.evaluate(num_episodes=10)
+            val_dict = learner.evaluate(num_episodes=10, episode_rtg_ref=buffer.values_up_bound)
             val_dict.update(learner.evaluate_policy(num_episodes=10))
 
             learner.mtm.train()

@@ -89,7 +89,7 @@ class Learner(object):
             "tau": self.cfg.tau,
             "device": self.cfg.device,
             # IQL
-            "beta": 0.3,
+            "beta": 3.0,
             "iql_tau": self.cfg.expectile,
             "max_steps": self.cfg.num_train_steps * self.cfg.v_iter_per_mtm + self.cfg.warmup_steps,
         }
@@ -174,10 +174,11 @@ class Learner(object):
         
     @torch.no_grad()
     def action_sample(
-        self, sequence_history, percentage=1.0, horizon=4, plan=True, eval=False
+        self, sequence_history, percentage=1.0, horizon=4, plan=True, eval=False, rtg=None,
     ):
         if eval == True:
             assert plan == False
+            assert rtg is not None
 
         horizon = self.cfg.horizon
         end_idx = sequence_history["path_length"]
@@ -204,14 +205,21 @@ class Learner(object):
             ): torch.tensor(v, device=self.cfg.device, dtype=torch.float32)
             for k, v in zero_trajectory.items()
         }
+        
+        if rtg is not None:
+            #Use time-related rtg for eval
+            return_to_go = float(rtg)
+            returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(self.cfg.device)
+        else:
+            #Use a constant rtg for explore
+            return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
+            return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
 
-        return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
-        return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
-
-        return_value = return_min + (return_max - return_min) * percentage
-        return_to_go = float(return_value)
-        returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
-        torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(self.cfg.device)
+            return_value = return_min + (return_max - return_min) * percentage
+            return_to_go = float(return_value)
+            returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(self.cfg.device)
 
         if plan:
             assert self.cfg.plan_guidance in [
@@ -352,78 +360,79 @@ class Learner(object):
     def evaluate(
         self,
         num_episodes: int,
+        episode_rtg_ref: np.ndarray,
         disable_tqdm: bool = True,
         verbose: bool = False,
         all_results: bool = False,
         num_videos: int = 3,
     ) -> Dict[str, Any]:
 
-        return_to_go_list = [0.8, 0.9, 1.0]
+        
         log_data = {}
 
-        for return_to_go in return_to_go_list:
+        
             
-            stats: Dict[str, Any] = defaultdict(list)
-            successes = None
-            for i in range(num_episodes):
-                current_trajectory = {
-                    "observations": np.zeros(
-                        (1000, self.env.observation_space.shape[0]), dtype=np.float32
-                    ),
-                    "actions": np.zeros(
-                        (1000, self.env.action_space.shape[0]), dtype=np.float32
-                    ),
-                    "rewards": np.zeros((1000, 1), dtype=np.float32),
-                    "values": np.zeros((1000, 1), dtype=np.float32),
-                    "total_return": 0,
-                    "path_length": 0,
-                }
+        stats: Dict[str, Any] = defaultdict(list)
+        successes = None
+        for i in range(num_episodes):
+            current_trajectory = {
+                "observations": np.zeros(
+                    (1000, self.env.observation_space.shape[0]), dtype=np.float32
+                ),
+                "actions": np.zeros(
+                    (1000, self.env.action_space.shape[0]), dtype=np.float32
+                ),
+                "rewards": np.zeros((1000, 1), dtype=np.float32),
+                "values": np.zeros((1000, 1), dtype=np.float32),
+                "total_return": 0,
+                "path_length": 0,
+            }
 
-                observation, done = self.env.reset(), False
+            observation, done = self.env.reset(), False
+            # if len(videos) < num_videos:
+            #     try:
+            #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
+            #     except:
+            #         imgs = [self.env.render()[::-1]]
+
+            timestep = 0
+            while not done and timestep < 1000:
+                current_trajectory["observations"][timestep] = observation
+                action, _ = self.action_sample(
+                    current_trajectory, percentage=1.0, plan=False, eval=True, rtg=episode_rtg_ref[timestep]
+                )
+                action = np.clip(action.cpu().numpy(), -1, 1)
+                new_observation, reward, done, info = self.env.step(action)
+                current_trajectory["actions"][timestep] = action
+                current_trajectory["rewards"][timestep] = reward
+                observation = new_observation
+                timestep += 1
+                current_trajectory["path_length"] += 1
                 # if len(videos) < num_videos:
                 #     try:
-                #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
+                #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
                 #     except:
-                #         imgs = [self.env.render()[::-1]]
+                #         imgs.append(self.env.render()[::-1])
 
-                timestep = 0
-                while not done and timestep < 1000:
-                    current_trajectory["observations"][timestep] = observation
-                    action, _ = self.action_sample(
-                        current_trajectory, percentage=return_to_go, plan=False, eval=True
-                    )
-                    action = np.clip(action.cpu().numpy(), -1, 1)
-                    new_observation, reward, done, info = self.env.step(action)
-                    current_trajectory["actions"][timestep] = action
-                    current_trajectory["rewards"][timestep] = reward
-                    observation = new_observation
-                    timestep += 1
-                    current_trajectory["path_length"] += 1
-                    # if len(videos) < num_videos:
-                    #     try:
-                    #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
-                    #     except:
-                    #         imgs.append(self.env.render()[::-1])
+            # if len(videos) < num_videos:
+            #     videos.append(np.array(imgs[:-1]))
 
-                # if len(videos) < num_videos:
-                #     videos.append(np.array(imgs[:-1]))
+            if "episode" in info:
+                for k in info["episode"].keys():
+                    stats[k].append(float(info["episode"][k]))
+                    if verbose:
+                        print(f"{k}:{info['episode'][k]}")
 
-                if "episode" in info:
-                    for k in info["episode"].keys():
-                        stats[k].append(float(info["episode"][k]))
-                        if verbose:
-                            print(f"{k}:{info['episode'][k]}")
+                ret = info["episode"]["return"]
+                mean = np.mean(stats["return"])
+                if "is_success" in info:
+                    if successes is None:
+                        successes = 0.0
+                    successes += info["is_success"]
 
-                    ret = info["episode"]["return"]
-                    mean = np.mean(stats["return"])
-                    if "is_success" in info:
-                        if successes is None:
-                            successes = 0.0
-                        successes += info["is_success"]
-
-                else:
-                    stats["return"].append(current_trajectory["rewards"].sum())
-                    stats["length"].append(current_trajectory["path_length"])
+            else:
+                stats["return"].append(current_trajectory["rewards"].sum())
+                stats["length"].append(current_trajectory["path_length"])
 
             new_stats = {}
             for k, v in stats.items():
@@ -438,7 +447,7 @@ class Learner(object):
                 stats["success"] = successes / num_episodes
 
             for k, v in stats.items():
-                log_data[f"eval_bc_{return_to_go}/{k}"] = v
+                log_data[f"eval_bc/{k}"] = v
             # for idx, v in enumerate(videos):
             #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
             #         v.transpose(0, 3, 1, 2), fps=10, format="gif"

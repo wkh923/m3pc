@@ -158,13 +158,13 @@ class ReplayBuffer:
             shuffle_indices = np.arange(len(keep_idx))
             np.random.shuffle(shuffle_indices)
             keep_idx = [keep_idx[i] for i in shuffle_indices]
-
         self.path_lengths = self.path_lengths[keep_idx]
         self.path_lengths_avg = np.mean(self.path_lengths)
         self.observations_segmented = self.observations_segmented[keep_idx]
         self.actions_segmented = self.actions_segmented[keep_idx]
         self.rewards_segmented = self.rewards_segmented[keep_idx]
         self.values_segmented = self.values_segmented[keep_idx]
+        self.values_up_bound = self.values_segmented.max(axis=0)
         self.trajectory_returns = self.trajectory_returns[keep_idx]
         self.p = self.path_lengths / self.path_lengths.sum(axis=0)
         self.p_length_list = []
