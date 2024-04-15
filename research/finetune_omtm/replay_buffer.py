@@ -316,6 +316,7 @@ class ReplayBuffer:
             axis=0,
         )
         self.p = self.path_lengths / self.path_lengths.sum(axis=0)
+        self.values_up_bound = self.values_segmented.max(axis=0)
 
     def traj_sample(self):
         """Sample a batch of trajectories from the replay buffer.
