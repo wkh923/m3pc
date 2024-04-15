@@ -45,7 +45,7 @@ finetune_args:
     traj_batch_size: 1024
     trans_batch_size: 256
     using_online_threshold: 5000
-    warmup_steps: 1000000 # 0
+    warmup_steps: 1000000 # 1000000
     num_train_steps: 100000
     learning_rate: 1e-4
     critic_lr: 3e-4
@@ -94,7 +94,7 @@ finetune_args:
     critic_hidden_size: 256
 
 wandb:
-    project: d4rl_finetune
+    project: omtm_finetune
     entity: f69
     resume: null
     experiment_name: finetune

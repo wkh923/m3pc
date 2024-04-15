@@ -434,26 +434,25 @@ class Learner(object):
                 stats["return"].append(current_trajectory["rewards"].sum())
                 stats["length"].append(current_trajectory["path_length"])
 
-            new_stats = {}
-            for k, v in stats.items():
-                new_stats[k + "_mean"] = float(np.mean(v))
-                new_stats[k + "_std"] = float(np.std(v))
+        new_stats = {}
+        for k, v in stats.items():
+            new_stats[k + "_mean"] = float(np.mean(v))
+            new_stats[k + "_std"] = float(np.std(v))
 
-            if all_results:
-                new_stats.update(stats)
-            stats = new_stats
-            print(stats["return_mean"])
-            if successes is not None:
-                stats["success"] = successes / num_episodes
+        if all_results:
+            new_stats.update(stats)
+        stats = new_stats
+        if successes is not None:
+            stats["success"] = successes / num_episodes
 
-            for k, v in stats.items():
-                log_data[f"eval_bc/{k}"] = v
-            # for idx, v in enumerate(videos):
-            #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
-            #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
-            #     )
+        for k, v in stats.items():
+            log_data[f"eval_bc/{k}"] = v
+        # for idx, v in enumerate(videos):
+        #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
+        #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
+        #     )
 
-        return log_data
+        return log_data, stats["return_mean"]
     
     torch.no_grad()
     def evaluate_policy(
@@ -518,7 +517,6 @@ class Learner(object):
         if all_results:
             new_stats.update(stats)
         stats = new_stats
-        print(stats["return_mean"])
         if successes is not None:
             stats["success"] = successes / num_episodes
 
@@ -530,7 +528,7 @@ class Learner(object):
         #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
         #     )
 
-        return log_data
+        return log_data, stats["return_mean"]
 
 
 def loss(diff, expectile=0.8):

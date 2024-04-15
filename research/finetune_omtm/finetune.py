@@ -278,11 +278,18 @@ def main(hydra_cfg):
             batch = buffer.trans_sample()
             critic_log = learner.critic_update(batch)
             
-            if i % 10000 == 0:
+            if i % 5000 == 0:
                 
                 learner.iql.actor.eval()
-                learner.evaluate_policy(num_episodes=10)
+                _, eval_score = learner.evaluate_policy(num_episodes=10)
                 learner.iql.actor.train()
+                
+                print("---------------------------------------")
+                print(
+                    f"IQL Evaluation over {i} timesteps: "
+                    f"D4RL score: {eval_score:.3f}"
+                )
+                print("---------------------------------------")
         
         torch.save(learner.iql.state_dict(),f"init_iql.pt")
 
@@ -374,8 +381,9 @@ def main(hydra_cfg):
                 log_dict[f"eval/masked_c_loss_{k}"] = v
             log_dict[f"eval/entropy"] = entropy.item()
 
-            val_dict = learner.evaluate(num_episodes=10, episode_rtg_ref=buffer.values_up_bound)
-            val_dict.update(learner.evaluate_policy(num_episodes=10))
+            val_dict, _ = learner.evaluate(num_episodes=10, episode_rtg_ref=buffer.values_up_bound)
+            iql_dict, _ = learner.evaluate_policy(num_episodes=10)
+            val_dict.update(iql_dict)
 
             learner.mtm.train()
             learner.iql.qf.train()
@@ -383,11 +391,22 @@ def main(hydra_cfg):
             learner.iql.actor.train()
             val_dict["time/eval_step_time"] = time.time() - start_time
 
+            if "hopper" in cfg.env_name:
+                return_max = 4000
+                step_max = 1000
+            elif "walker2d" in cfg.env_name:
+                return_max = 5000
+                step_max = 1000
+            elif "halfcheetah" in cfg.env_name:
+                return_max = 12000
+                step_max = 1000
+            else:
+                raise NotImplementedError
             explore_return_hist = np.histogram(
-                buffer.p_return_list, bins=list(range(0, 3501, 50))
+                buffer.p_return_list, bins=list(range(0, return_max + 1, 50))
             )
             explore_length_hist = np.histogram(
-                buffer.p_length_list, bins=list(range(0, 1001, 20))
+                buffer.p_length_list, bins=list(range(0, step_max + 1, 20))
             )
 
             log_dict["explore/explore_return_hist"] = wandb.Histogram(
