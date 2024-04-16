@@ -119,8 +119,8 @@ class Learner(object):
         )
         encode = self.tokenizer_manager.encode(trajectory)
         action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))["actions"] # dist of shape(1, seq_len, act_dim)
-        sample_actions = action_dist.sample((30,))[:, 0, self.cfg.traj_length - h, 0, :] #(30, act_dim)
-        sample_states = cur_state.repeat(30, 1)
+        sample_actions = action_dist.sample((1024,))[:, 0, self.cfg.traj_length - h, 0, :] #(30, act_dim)
+        sample_states = cur_state.repeat(1024, 1)
         values = self.iql.qf(sample_states, sample_actions).squeeze(-1)
         values -= torch.max(values)
         p = torch.exp(values) / torch.exp(values).sum()
@@ -177,7 +177,6 @@ class Learner(object):
         self, sequence_history, percentage=1.0, horizon=4, plan=True, eval=False, rtg=None,
     ):
         if eval == True:
-            assert plan == False
             assert rtg is not None
 
         horizon = self.cfg.horizon
@@ -233,12 +232,10 @@ class Learner(object):
                 sample, best = self.critic_lambda_guiding(torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda)
                 return sample, best
         else:  
-            if not eval:
-                policy_action, _ = self.mtm_sampling(torch_zero_trajectory, horizon)
-            else:
-                _, policy_action = self.mtm_sampling(torch_zero_trajectory, horizon)
-                
-            return policy_action, None
+            policy_action, best = self.mtm_sampling(torch_zero_trajectory, horizon)
+            
+            return policy_action, best
+    
 
     def compute_mtm_loss(
         self, batch: Dict[str, torch.Tensor], data_shapes, discrete_map, entropy_reg: float,
@@ -371,7 +368,7 @@ class Learner(object):
         log_data = {}
 
         
-        for ratio in [0.8, 0.9, 1.0]:    
+        for ratio in [0.9, 1.0]:    
             stats: Dict[str, Any] = defaultdict(list)
             successes = None
             for i in range(num_episodes):
@@ -444,9 +441,107 @@ class Learner(object):
             stats = new_stats
             if successes is not None:
                 stats["success"] = successes / num_episodes
-
             for k, v in stats.items():
                 log_data[f"eval_bc_{ratio}/{k}"] = v
+            
+            # for idx, v in enumerate(videos):
+            #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
+            #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
+            #     )
+
+        return log_data, stats["return_mean"]
+    
+    @torch.no_grad()
+    def evaluate_plan(
+        self,
+        num_episodes: int,
+        episode_rtg_ref: np.ndarray,
+        disable_tqdm: bool = True,
+        verbose: bool = False,
+        all_results: bool = False,
+        num_videos: int = 3,
+    ) -> Dict[str, Any]:
+
+        
+        log_data = {}
+
+        
+        for ratio in [0.9, 1.0]:    
+            stats: Dict[str, Any] = defaultdict(list)
+            successes = None
+            for i in range(num_episodes):
+                current_trajectory = {
+                    "observations": np.zeros(
+                        (1000, self.env.observation_space.shape[0]), dtype=np.float32
+                    ),
+                    "actions": np.zeros(
+                        (1000, self.env.action_space.shape[0]), dtype=np.float32
+                    ),
+                    "rewards": np.zeros((1000, 1), dtype=np.float32),
+                    "values": np.zeros((1000, 1), dtype=np.float32),
+                    "total_return": 0,
+                    "path_length": 0,
+                }
+
+                observation, done = self.env.reset(), False
+                # if len(videos) < num_videos:
+                #     try:
+                #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
+                #     except:
+                #         imgs = [self.env.render()[::-1]]
+
+                timestep = 0
+                while not done and timestep < 1000:
+                    current_trajectory["observations"][timestep] = observation
+                    _, action = self.action_sample(
+                        current_trajectory, percentage=1.0, plan=True, eval=True, rtg=episode_rtg_ref[timestep] * ratio
+                    )
+                    action = np.clip(action.cpu().numpy(), -1, 1)
+                    new_observation, reward, done, info = self.env.step(action)
+                    current_trajectory["actions"][timestep] = action
+                    current_trajectory["rewards"][timestep] = reward
+                    observation = new_observation
+                    timestep += 1
+                    current_trajectory["path_length"] += 1
+                    # if len(videos) < num_videos:
+                    #     try:
+                    #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
+                    #     except:
+                    #         imgs.append(self.env.render()[::-1])
+
+                # if len(videos) < num_videos:
+                #     videos.append(np.array(imgs[:-1]))
+
+                if "episode" in info:
+                    for k in info["episode"].keys():
+                        stats[k].append(float(info["episode"][k]))
+                        if verbose:
+                            print(f"{k}:{info['episode'][k]}")
+
+                    ret = info["episode"]["return"]
+                    mean = np.mean(stats["return"])
+                    if "is_success" in info:
+                        if successes is None:
+                            successes = 0.0
+                        successes += info["is_success"]
+
+                else:
+                    stats["return"].append(current_trajectory["rewards"].sum())
+                    stats["length"].append(current_trajectory["path_length"])
+
+            new_stats = {}
+            for k, v in stats.items():
+                new_stats[k + "_mean"] = float(np.mean(v))
+                new_stats[k + "_std"] = float(np.std(v))
+
+            if all_results:
+                new_stats.update(stats)
+            stats = new_stats
+            if successes is not None:
+                stats["success"] = successes / num_episodes
+            for k, v in stats.items():
+                log_data[f"eval_plan_{ratio}/{k}"] = v
+            
             # for idx, v in enumerate(videos):
             #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
             #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
