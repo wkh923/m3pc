@@ -1,14 +1,14 @@
 local_cuda_rank: 0
 # because working dictionary is "....../mtm/outputs/2024-03-05/13-19-37"
-pretrain_model_path: ../../../outputs/omtm_mae/walker2d-medium/walker2d-medium-v2_140010.pt
+pretrain_model_path: ../../../outputs/omtm_mae/hopper-medium-replay/hopper-medium-replay-v2_140010.pt
 pretrain_args:
-    env_name: walker2d-medium-v2
+    env_name: hopper-medium-replay-v2
     traj_length: 8
 
 pretrain_dataset:
     _target_: research.omtm.datasets.d4rl_ds.get_datasets
     seq_steps: ???
-    env_name: walker2d-medium-v2
+    env_name: hopper-medium-replay-v2
     use_reward: true
     seed: 0
     discount: 1.5
@@ -45,7 +45,7 @@ finetune_args:
     traj_batch_size: 1024
     trans_batch_size: 256
     using_online_threshold: 5000
-    warmup_steps: 0 # 1000000
+    warmup_steps: 1000000 # 1000000
     num_train_steps: 100000
     learning_rate: 1e-4
     critic_lr: 3e-4

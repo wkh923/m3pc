@@ -17,7 +17,14 @@ class D4RLDataset(Dataset):
             lim = 1 - eps
             dataset["actions"] = np.clip(dataset["actions"], -lim, lim)
 
+        terminals_float = np.zeros_like(dataset["rewards"])
         dones_float = np.zeros_like(dataset["rewards"])
+        
+        for i in range(len(terminals_float) - 1):
+            if dataset["terminals"][i] == 1.0:
+                terminals_float[i] = 1
+            else:
+                terminals_float[i] = 0
 
         for i in range(len(dones_float) - 1):
             if (
@@ -38,6 +45,7 @@ class D4RLDataset(Dataset):
             actions=dataset["actions"].astype(np.float32),
             rewards=dataset["rewards"].astype(np.float32),
             masks=1.0 - dataset["terminals"].astype(np.float32),
+            terminals_float=terminals_float.astype(np.float32),
             dones_float=dones_float.astype(np.float32),
             next_observations=dataset["next_observations"].astype(np.float32),
             size=len(dataset["observations"]),

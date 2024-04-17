@@ -125,7 +125,7 @@ class Learner(object):
         values -= torch.max(values)
         values *= self.cfg.temperature
         p = torch.exp(values) / torch.exp(values).sum()
-        eval_action = sample_actions * p[:, None] / p.sum()
+        eval_action = (sample_actions * p[:, None]).sum(dim=0) / p.sum()
         sample_idx = torch.multinomial(p, 1)
         sample_action = sample_actions[sample_idx]
         
@@ -165,7 +165,7 @@ class Learner(object):
         expect_return -= torch.max(expect_return)
         score = expect_return * self.cfg.temperature
         p = torch.exp(score) / torch.exp(score).sum()
-        eval_action = sample_actions[:, 0] * p[:,None] / p.sum()
+        eval_action = (sample_actions[:, 0] * p[:,None]).sum(dim=0) / p.sum()
         sample_idx = torch.multinomial(p, 1)
         sample_action = sample_actions[sample_idx, 0]
         
@@ -227,10 +227,10 @@ class Learner(object):
             ]
             if self.cfg.plan_guidance == "critic_guiding":
                 sample_action, eval_action = self.critic_guiding(torch_zero_trajectory, horizon)
-                return sample_action, eval_action
+                
             elif self.cfg.plan_guidance == "critic_lambda_guiding":
                 sample_action, eval_action = self.critic_lambda_guiding(torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda)
-                return sample_action, eval_action
+                
         else:  
             sample_action, eval_action = self.mtm_sampling(torch_zero_trajectory, horizon)
             

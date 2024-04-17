@@ -14,7 +14,7 @@ Batch = collections.namedtuple(
 
 
 def split_into_trajectories(
-    observations, actions, rewards, masks, dones_float, next_observations
+    observations, actions, rewards, masks, terminals_float, dones_float, next_observations
 ):
     trajs = [[]]
 
@@ -25,6 +25,7 @@ def split_into_trajectories(
                 actions[i],
                 rewards[i],
                 masks[i],
+                terminals_float[i],
                 dones_float[i],
                 next_observations[i],
             )
@@ -40,15 +41,17 @@ def merge_trajectories(trajs):
     actions = []
     rewards = []
     masks = []
+    terminals_float = []
     dones_float = []
     next_observations = []
 
     for traj in trajs:
-        for obs, act, rew, mask, done, next_obs in traj:
+        for obs, act, rew, mask, terminal, done, next_obs in traj:
             observations.append(obs)
             actions.append(act)
             rewards.append(rew)
             masks.append(mask)
+            terminals_float.append(terminal)
             dones_float.append(done)
             next_observations.append(next_obs)
 
@@ -57,6 +60,7 @@ def merge_trajectories(trajs):
         np.stack(actions),
         np.stack(rewards),
         np.stack(masks),
+        np.stack(terminals_float),
         np.stack(dones_float),
         np.stack(next_observations),
     )
@@ -69,6 +73,7 @@ class Dataset(object):
         actions: np.ndarray,
         rewards: np.ndarray,
         masks: np.ndarray,
+        terminals_float: np.ndarray,
         dones_float: np.ndarray,
         next_observations: np.ndarray,
         size: int,
@@ -77,6 +82,7 @@ class Dataset(object):
         self.actions = actions
         self.rewards = rewards
         self.masks = masks
+        self.terminals_float = terminals_float
         self.dones_float = dones_float
         self.next_observations = next_observations
         self.size = size
@@ -102,6 +108,7 @@ class Dataset(object):
             self.actions,
             self.rewards,
             self.masks,
+            self.terminals_float,
             self.dones_float,
             self.next_observations,
         )
@@ -133,6 +140,7 @@ class Dataset(object):
             self.actions,
             self.rewards,
             self.masks,
+            self.terminals_float,
             self.dones_float,
             self.next_observations,
         )
@@ -153,6 +161,7 @@ class Dataset(object):
             self.actions,
             self.rewards,
             self.masks,
+            self.terminals_float,
             self.dones_float,
             self.next_observations,
         )
@@ -176,6 +185,7 @@ class Dataset(object):
             self.actions,
             self.rewards,
             self.masks,
+            self.terminals_float,
             self.dones_float,
             self.next_observations,
         ) = merge_trajectories(trajs)
@@ -190,6 +200,7 @@ class Dataset(object):
             self.actions,
             self.rewards,
             self.masks,
+            self.terminals_float,
             self.dones_float,
             self.next_observations,
         )
@@ -205,6 +216,7 @@ class Dataset(object):
             self.actions,
             self.rewards,
             self.masks,
+            self.terminals_float,
             self.dones_float,
             self.next_observations,
         ) = merge_trajectories(trajs)
@@ -219,6 +231,7 @@ class Dataset(object):
             self.actions,
             self.rewards,
             self.masks,
+            self.terminals_float,
             self.dones_float,
             self.next_observations,
         )
@@ -231,6 +244,7 @@ class Dataset(object):
             train_actions,
             train_rewards,
             train_masks,
+            train_terminals_float,
             train_dones_float,
             train_next_observations,
         ) = merge_trajectories(trajs[:train_size])
@@ -240,6 +254,7 @@ class Dataset(object):
             valid_actions,
             valid_rewards,
             valid_masks,
+            valid_terminals_float,
             valid_dones_float,
             valid_next_observations,
         ) = merge_trajectories(trajs[train_size:])
@@ -249,6 +264,7 @@ class Dataset(object):
             train_actions,
             train_rewards,
             train_masks,
+            train_terminals_float,
             train_dones_float,
             train_next_observations,
             size=len(train_observations),
@@ -258,6 +274,7 @@ class Dataset(object):
             valid_actions,
             valid_rewards,
             valid_masks,
+            valid_terminals_float,
             valid_dones_float,
             valid_next_observations,
             size=len(valid_observations),

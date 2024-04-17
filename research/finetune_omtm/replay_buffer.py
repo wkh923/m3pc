@@ -45,17 +45,19 @@ class ReplayBuffer:
         self.obs_std = self.observations_raw.std(axis=0)
         self.actions_raw = dataset.actions
         self.rewards_raw = dataset.rewards.reshape(-1, 1)
-        self.terminals_raw = dataset.dones_float
+        self.dones_raw = dataset.dones_float
+        self.terminals_raw = dataset.terminals_float
+        self.next_observations_raw = dataset.next_observations
 
         ## segment
         self.actions_segmented, self.termination_flags, self.path_lengths = segment(
-            self.actions_raw, self.terminals_raw, max_path_length
+            self.actions_raw, self.dones_raw, max_path_length
         )
         self.observations_segmented, *_ = segment(
-            self.observations_raw, self.terminals_raw, max_path_length
+            self.observations_raw, self.dones_raw, max_path_length
         )
         self.rewards_segmented, *_ = segment(
-            self.rewards_raw, self.terminals_raw, max_path_length
+            self.rewards_raw, self.dones_raw, max_path_length
         )
 
         if discount > 1.0:
@@ -103,11 +105,7 @@ class ReplayBuffer:
             field_names=["state", "action", "reward", "next_state", "done"],
         )
         
-        # extract transition from Dataset and add top transitions into replay buffer
-        self.next_observations_raw = np.roll(self.observations_raw, -1, axis=0)
-        self.next_observations_raw[-1] = np.zeros_like(
-            self.next_observations_raw[-1]
-        )
+        
         sorted_idx_raw = np.argsort(self.rewards_raw[:, 0], axis=0)[::-1][
             : self.buffer_init_size
         ]
