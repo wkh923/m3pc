@@ -105,8 +105,8 @@ class Learner(object):
         action_dist = self.tokenizer_manager.decode(self.mtm(encode, rcbc_mask))['actions'] # dist of shape(1, seq_len, act_dim)
         sample_action = action_dist.sample()[0, self.cfg.traj_length - h]
         
-        mean_action = action_dist.mean[0, self.cfg.traj_length - h]
-        return sample_action, mean_action
+        eval_action = action_dist.mean[0, self.cfg.traj_length - h]
+        return sample_action, eval_action
         
         
     @torch.no_grad()
@@ -123,13 +123,15 @@ class Learner(object):
         sample_states = cur_state.repeat(1024, 1)
         values = self.iql.qf(sample_states, sample_actions).squeeze(-1)
         values -= torch.max(values)
+        values *= self.cfg.temperature
         p = torch.exp(values) / torch.exp(values).sum()
+        eval_action = sample_actions * p[:, None] / p.sum()
         sample_idx = torch.multinomial(p, 1)
         sample_action = sample_actions[sample_idx]
         max_idx = p.max(dim=0)[1]
         best_action = sample_actions[max_idx]
         
-        return sample_action, best_action
+        return sample_action, eval_action
     
     @torch.no_grad()
     def critic_lambda_guiding(self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float):
@@ -163,13 +165,13 @@ class Learner(object):
                 expect_return += values.sum(dim=-1) * (lmbda ** t)
         
         expect_return -= torch.max(expect_return)
-        p = torch.exp(expect_return) / torch.exp(expect_return).sum()
+        score = expect_return * self.cfg.temperature
+        p = torch.exp(score) / torch.exp(score).sum()
+        eval_action = sample_actions * p[:,None] / p.sum()
         sample_idx = torch.multinomial(p, 1)
         sample_action = sample_actions[sample_idx, 0]
-        max_idx = p.max(dim=0)[1]
-        best_action = sample_actions[max_idx, 0]
         
-        return sample_action, best_action    
+        return sample_action, eval_action    
                 
         
     @torch.no_grad()
@@ -226,15 +228,18 @@ class Learner(object):
                 "critic_lambda_guiding",
             ]
             if self.cfg.plan_guidance == "critic_guiding":
-                sample, best = self.critic_guiding(torch_zero_trajectory, horizon)
-                return sample, best
+                sample_action, eval_action = self.critic_guiding(torch_zero_trajectory, horizon)
+                return sample_action, eval_action
             elif self.cfg.plan_guidance == "critic_lambda_guiding":
-                sample, best = self.critic_lambda_guiding(torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda)
-                return sample, best
+                sample_action, eval_action = self.critic_lambda_guiding(torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda)
+                return sample_action, eval_action
         else:  
-            policy_action, best = self.mtm_sampling(torch_zero_trajectory, horizon)
+            sample_action, eval_action = self.mtm_sampling(torch_zero_trajectory, horizon)
             
-            return policy_action, best
+        if eval:
+            return eval_action
+        else:
+            return sample_action
     
 
     def compute_mtm_loss(
@@ -395,7 +400,7 @@ class Learner(object):
                 timestep = 0
                 while not done and timestep < 1000:
                     current_trajectory["observations"][timestep] = observation
-                    action, _ = self.action_sample(
+                    _, action = self.action_sample(
                         current_trajectory, percentage=1.0, plan=False, eval=True, rtg=episode_rtg_ref[timestep] * ratio
                     )
                     action = np.clip(action.cpu().numpy(), -1, 1)

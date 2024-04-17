@@ -41,24 +41,33 @@ def get_datasets(
 
 
 def main():
-    env_names = [
-        "hopper-medium-v2",
-        "hopper-medium-replay-v2",
-        "hopper-medium-expert-v2",
-        "hopper-expert-v2",
-        "walker2d-medium-v2",
-        "walker2d-medium-replay-v2",
-        "walker2d-medium-expert-v2",
-        "walker2d-expert-v2",
-        "halfcheetah-medium-v2",
-        "halfcheetah-medium-replay-v2",
-        "halfcheetah-medium-expert-v2",
-        "halfcheetah-expert-v2",
-    ]
-    for d in [0.99, 1, 1.5]:
-        for e in env_names:
-            train_dataset, val_dataset = get_datasets(32, e, discount=d)
-            train_dataset.trajectory_statistics()
+    # env_names = [
+    #     "hopper-medium-v2",
+    #     "hopper-medium-replay-v2",
+    #     "hopper-medium-expert-v2",
+    #     "hopper-expert-v2",
+    #     "walker2d-medium-v2",
+    #     "walker2d-medium-replay-v2",
+    #     "walker2d-medium-expert-v2",
+    #     "walker2d-expert-v2",
+    #     "halfcheetah-medium-v2",
+    #     "halfcheetah-medium-replay-v2",
+    #     "halfcheetah-medium-expert-v2",
+    #     "halfcheetah-expert-v2",
+    # ]
+    # for d in [0.99, 1, 1.5]:
+    #     for e in env_names:
+    #         train_dataset, val_dataset = get_datasets(32, e, discount=d)
+    #         train_dataset.trajectory_statistics()
+    env_name = "antmaze-umaze-v2"
+    train_dataset, val_dataset,_ = get_datasets(32, env_name, discount=1.0)
+    list = []
+    for observation, reward in zip(train_dataset.observations_raw, train_dataset.rewards_raw):
+        if reward == 1:
+            list.append(observation[:2])
+            print(observation[:2])
+    print("mean:", sum(list)/len(list))
+            
 
 
 if __name__ == "__main__":
