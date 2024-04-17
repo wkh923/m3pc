@@ -213,7 +213,7 @@ class ReplayBuffer:
             timestep = 0
             while not done and timestep < self.max_path_length:
                 current_trajectory["observations"][timestep] = observation
-                action, _ = sample_func(
+                action = sample_func(
                     current_trajectory,
                     percentage=self.cfg.rtg_percent,
                     plan=self.cfg.plan,

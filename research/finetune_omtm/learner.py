@@ -400,7 +400,7 @@ class Learner(object):
                 timestep = 0
                 while not done and timestep < 1000:
                     current_trajectory["observations"][timestep] = observation
-                    _, action = self.action_sample(
+                    action = self.action_sample(
                         current_trajectory, percentage=1.0, plan=False, eval=True, rtg=episode_rtg_ref[timestep] * ratio
                     )
                     action = np.clip(action.cpu().numpy(), -1, 1)
@@ -498,7 +498,7 @@ class Learner(object):
                 timestep = 0
                 while not done and timestep < 1000:
                     current_trajectory["observations"][timestep] = observation
-                    _, action = self.action_sample(
+                    action = self.action_sample(
                         current_trajectory, percentage=1.0, plan=True, eval=True, rtg=episode_rtg_ref[timestep] * ratio
                     )
                     action = np.clip(action.cpu().numpy(), -1, 1)
