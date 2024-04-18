@@ -70,7 +70,7 @@ finetune_args:
     #plan 
     plan: True
     rtg_percent: 1.0 # [0.8 1.0]
-    plan_guidance: "critic_lambda_guiding" # [critic_guiding, critic_lambda_guiding]
+    plan_guidance: "critic_guiding" # [critic_guiding, critic_lambda_guiding]
     lmbda: 0.5
     expectile: 0.7
     horizon: 4

@@ -125,7 +125,9 @@ class Learner(object):
         values -= torch.max(values)
         values *= self.cfg.temperature
         p = torch.exp(values) / torch.exp(values).sum()
-        eval_action = (sample_actions * p[:, None]).sum(dim=0) / p.sum()
+        max_idx = torch.argmax(p)
+        eval_action = sample_actions[max_idx]
+        # eval_action = (sample_actions * p[:, None]).sum(dim=0) / p.sum()
         sample_idx = torch.multinomial(p, 1)
         sample_action = sample_actions[sample_idx]
         
@@ -165,7 +167,9 @@ class Learner(object):
         expect_return -= torch.max(expect_return)
         score = expect_return * self.cfg.temperature
         p = torch.exp(score) / torch.exp(score).sum()
-        eval_action = (sample_actions[:, 0] * p[:,None]).sum(dim=0) / p.sum()
+        max_idx = torch.argmax(p)
+        eval_action = sample_actions[max_idx, 0]
+        # eval_action = (sample_actions[:, 0] * p[:,None]).sum(dim=0) / p.sum()
         sample_idx = torch.multinomial(p, 1)
         sample_action = sample_actions[sample_idx, 0]
         
