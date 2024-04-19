@@ -42,11 +42,12 @@ finetune_args:
     _target_: research.finetune_omtm.finetune.RunConfig
     discount: 0.99
     seed: 0
-    traj_batch_size: 1024
+    traj_batch_size: 512
     trans_batch_size: 256
     using_online_threshold: 5000
     warmup_steps: 1000000 # 1000000
-    num_train_steps: 100000
+    num_train_steps: 10000000 # very large number, process actually controlled by explore_steps
+    explore_steps: 1000000
     learning_rate: 1e-4
     critic_lr: 3e-4
     v_lr: 3e-4
@@ -70,11 +71,11 @@ finetune_args:
     #plan 
     plan: True
     rtg_percent: 1.0 # [0.8 1.0]
-    plan_guidance: "critic_guiding" # [critic_guiding, critic_lambda_guiding]
-    lmbda: 0.5
+    plan_guidance: "critic_guiding" # [critic_guiding, critic_lambda_guiding, noise_adding]
+    lmbda: 0.6
     expectile: 0.7
     horizon: 4
-    action_samples: 1024
+    action_samples: 625
     temperature: 1.0
 
     #replay buffer

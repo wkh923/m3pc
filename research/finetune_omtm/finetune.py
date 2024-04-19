@@ -52,7 +52,7 @@ class RunConfig:
 
     trans_buffer_size: int = 20000
     """"Max transition level replay buffer size"""
-    
+
     using_online_threshold: int = 5000
 
     buffer_init_ratio: float = 0.2
@@ -77,6 +77,8 @@ class RunConfig:
 
     num_train_steps: int = 5_000_000
     """Number of training steps."""
+
+    explore_steps: int = 1_000_000
 
     learning_rate: float = 1e-3
     """Learning rate for MTM"""
@@ -110,7 +112,7 @@ class RunConfig:
 
     action_samples: int = 10
     """The number of policy action samples"""
-    
+
     clip_min: float = -1.0
     """"Minimum action"""
 
@@ -148,7 +150,6 @@ class RunConfig:
     horizon: int = 4
     """The horizon for planning, horizon=1 means critic guided search"""
     rtg_percent: float = 1.0
-
 
 
 def main(hydra_cfg):
@@ -194,7 +195,7 @@ def main(hydra_cfg):
             for k, v in hydra_cfg.tokenizers.items()
         }
     tokenizer_manager = TokenizerManager(tokenizers).to(cfg.device)
-    
+
     discrete_map: Dict[str, bool] = {}
     for k, v in tokenizers.items():
         discrete_map[k] = v.discrete
@@ -212,7 +213,7 @@ def main(hydra_cfg):
 
     print(f"Data shapes: {data_shapes}")
     logger.info(f"Data shapes: {data_shapes}")
-    
+
     learner = Learner(
         cfg,
         env,
@@ -224,19 +225,19 @@ def main(hydra_cfg):
         tokenizer_manager,
         discrete_map,
     )
-    
+
     # if cfg.warmup_steps > 0:
-        
+
     #     for i in range(cfg.warmup_steps * 10):
     #         batch = buffer.trans_sample()
     #         critic_log = learner.critic_update(batch)
-            
+
     #         if i % 5000 == 0:
-                
+
     #             learner.iql.actor.eval()
     #             learner.evaluate_policy(num_episodes=10)
     #             learner.iql.actor.train()
-        
+
     #     torch.save(learner.iql.state_dict(),f"init_iql.pt")
 
     # create a wandb logger and log params of interest
@@ -271,30 +272,30 @@ def main(hydra_cfg):
             experiment_id=exp_id,
         )
     wandb_logger = WandBLogger(wandb_cfg_log, wandb_cfg_log_dict)
-    
+
     if cfg.warmup_steps > 0:
-        
+
         for i in range(cfg.warmup_steps):
             batch = buffer.trans_sample()
             critic_log = learner.critic_update(batch)
-            
+
             if i % 5000 == 0:
-                
+
                 learner.iql.actor.eval()
                 _, eval_score = learner.evaluate_policy(num_episodes=10)
                 learner.iql.actor.train()
-                
+
                 print("---------------------------------------")
                 print(
                     f"IQL Evaluation over {i} timesteps: "
                     f"D4RL score: {eval_score:.3f}"
                 )
                 print("---------------------------------------")
-        
-        torch.save(learner.iql.state_dict(),f"init_iql.pt")
+
+        torch.save(learner.iql.state_dict(), f"init_iql.pt")
 
     step = 0
-    
+
     logger.info(f"starting from step={step}")
 
     episode = 0
@@ -308,9 +309,9 @@ def main(hydra_cfg):
         for critic_iter in range(cfg.v_iter_per_mtm):
             experiences = buffer.trans_sample()
             critic_log = learner.critic_update(experiences)
-            
+
         log_dict.update(critic_log)
-            
+
         try:
             batch = next(dataloader)
         except StopIteration:
@@ -323,10 +324,9 @@ def main(hydra_cfg):
             batch = next(dataloader)
             wandb_logger.log(explore_dict, step=step)
 
-        
         mtm_log = learner.mtm_update(batch, data_shapes, discrete_map)
         log_dict.update(mtm_log)
-        
+
         log_dict["time/train_step"] = time.time() - start_time
         log_dict["time/online_step"] = buffer.total_step
 
@@ -346,7 +346,7 @@ def main(hydra_cfg):
                 },
                 f"mtm_{step}.pt",
             )
-            torch.save(learner.iql.state_dict(),f"iql_{step}.pt")
+            torch.save(learner.iql.state_dict(), f"iql_{step}.pt")
 
             try:
                 if step > 3 * cfg.save_every:
@@ -368,8 +368,13 @@ def main(hydra_cfg):
             val_batch = {
                 k: v.to(cfg.device, non_blocking=True) for k, v in val_batch.items()
             }
-            (loss, losses, masked_losses, masked_c_losses, entropy) = learner.compute_mtm_loss(
-                val_batch, data_shapes, discrete_map, learner.mtm.temperature().detach()
+            (loss, losses, masked_losses, masked_c_losses, entropy) = (
+                learner.compute_mtm_loss(
+                    val_batch,
+                    data_shapes,
+                    discrete_map,
+                    learner.mtm.temperature().detach(),
+                )
             )
 
             log_dict["eval/loss"] = loss.item()
@@ -381,9 +386,13 @@ def main(hydra_cfg):
                 log_dict[f"eval/masked_c_loss_{k}"] = v
             log_dict[f"eval/entropy"] = entropy.item()
 
-            val_dict, _ = learner.evaluate(num_episodes=10, episode_rtg_ref=buffer.values_up_bound)
+            val_dict, _ = learner.evaluate(
+                num_episodes=10, episode_rtg_ref=buffer.values_up_bound
+            )
             if cfg.plan is True:
-                plan_dict, _ = learner.evaluate_plan(num_episodes=5, episode_rtg_ref=buffer.values_up_bound)
+                plan_dict, _ = learner.evaluate_plan(
+                    num_episodes=5, episode_rtg_ref=buffer.values_up_bound
+                )
                 val_dict.update(plan_dict)
             iql_dict, _ = learner.evaluate_policy(num_episodes=10)
             val_dict.update(iql_dict)
@@ -433,7 +442,7 @@ def main(hydra_cfg):
             wandb_logger.log(log_dict, step=step)
 
         step += 1
-        if step >= cfg.num_train_steps:
+        if step >= cfg.num_train_steps or buffer.total_step > cfg.explore_steps:
             break
 
     torch.save(
@@ -444,7 +453,8 @@ def main(hydra_cfg):
         },
         f"mtm_{step}.pt",
     )
-    torch.save(learner.iql.state_dict(),f"iql_{step}.pt")
+    torch.save(learner.iql.state_dict(), f"iql_{step}.pt")
+
 
 @hydra.main(config_path=".", config_name="config", version_base="1.1")
 def configure_jobs(hydra_data: DictConfig) -> None:

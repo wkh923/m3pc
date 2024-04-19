@@ -35,9 +35,10 @@ class Learner(object):
         self.cfg = cfg
         self.env = env
         self.mtm = model_config.create(data_shapes, cfg.traj_length, discrete_map)
-        self.mtm.load_state_dict(torch.load(pretrain_model_path, map_location="cpu")["model"])
+        self.mtm.load_state_dict(
+            torch.load(pretrain_model_path, map_location="cpu")["model"]
+        )
         self.mtm.to(cfg.device)
-        
 
         self.tokenizer_manager = tokenizer_manager
         self.obs_mean = obs_mean
@@ -52,9 +53,7 @@ class Learner(object):
         self.eps = 1e-5
 
         def _schedule(step):
-            return 0.5 * (
-                1 + np.cos(step / cfg.num_train_steps * np.pi)
-            )
+            return 0.5 * (1 + np.cos(step / cfg.num_train_steps * np.pi))
 
         self.mtm_scheduler = LambdaLR(self.mtm_optimizer, lr_lambda=_schedule)
         self.temp_optimizer = torch.optim.Adam(
@@ -62,18 +61,27 @@ class Learner(object):
             lr=1e-4,
             betas=[0.9, 0.999],
         )
-        
+
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
-        
-        q_network = TwinQ(state_dim, action_dim, self.obs_mean, self.obs_std).to(self.cfg.device)
-        v_network = ValueFunction(state_dim, self.obs_mean, self.obs_std).to(self.cfg.device)
+
+        q_network = TwinQ(state_dim, action_dim, self.obs_mean, self.obs_std).to(
+            self.cfg.device
+        )
+        v_network = ValueFunction(state_dim, self.obs_mean, self.obs_std).to(
+            self.cfg.device
+        )
         actor = (
             GaussianPolicy(
-                state_dim, action_dim, float(self.env.action_space.high[0]), obs_mean=self.obs_mean, obs_std=self.obs_std, dropout=0.
+                state_dim,
+                action_dim,
+                float(self.env.action_space.high[0]),
+                obs_mean=self.obs_mean,
+                obs_std=self.obs_std,
+                dropout=0.0,
             )
         ).to(self.cfg.device)
-        
+
         v_optimizer = torch.optim.Adam(v_network.parameters(), lr=self.cfg.v_lr)
         q_optimizer = torch.optim.Adam(q_network.parameters(), lr=self.cfg.critic_lr)
         actor_optimizer = torch.optim.Adam(actor.parameters(), lr=self.cfg.v_lr)
@@ -91,24 +99,26 @@ class Learner(object):
             # IQL
             "beta": 3.0,
             "iql_tau": self.cfg.expectile,
-            "max_steps": self.cfg.num_train_steps * self.cfg.v_iter_per_mtm + self.cfg.warmup_steps,
+            "max_steps": self.cfg.num_train_steps * self.cfg.v_iter_per_mtm
+            + self.cfg.warmup_steps,
         }
         self.iql = ImplicitQLearning(**iql_kwargs)
-        
 
-    
     @torch.no_grad()
     def mtm_sampling(self, trajectory: Dict[str, torch.Tensor], h):
-        
-        rcbc_mask = create_rcbc_mask(self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h)
+
+        rcbc_mask = create_rcbc_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
         encode = self.tokenizer_manager.encode(trajectory)
-        action_dist = self.tokenizer_manager.decode(self.mtm(encode, rcbc_mask))['actions'] # dist of shape(1, seq_len, act_dim)
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, rcbc_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
         sample_action = action_dist.sample()[0, self.cfg.traj_length - h]
-        
+
         eval_action = action_dist.mean[0, self.cfg.traj_length - h]
         return sample_action, eval_action
-        
-        
+
     @torch.no_grad()
     def critic_guiding(self, trajectory: Dict[str, torch.Tensor], h):
 
@@ -118,67 +128,118 @@ class Learner(object):
             self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
         )
         encode = self.tokenizer_manager.encode(trajectory)
-        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))["actions"] # dist of shape(1, seq_len, act_dim)
-        sample_actions = action_dist.sample((1024,))[:, 0, self.cfg.traj_length - h, 0, :] #(30, act_dim)
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+        sample_actions = action_dist.sample((1024,))[
+            :, 0, self.cfg.traj_length - h, 0, :
+        ]  # (30, act_dim)
         sample_states = cur_state.repeat(1024, 1)
         values = self.iql.qf(sample_states, sample_actions).squeeze(-1)
         values -= torch.max(values)
         values *= self.cfg.temperature
         p = torch.exp(values) / torch.exp(values).sum()
-        max_idx = torch.argmax(p)
-        eval_action = sample_actions[max_idx]
-        # eval_action = (sample_actions * p[:, None]).sum(dim=0) / p.sum()
+        # max_idx = torch.argmax(p)
+        # eval_action = sample_actions[max_idx]
+        eval_action = (sample_actions * p[:, None]).sum(dim=0) / p.sum()
         sample_idx = torch.multinomial(p, 1)
         sample_action = sample_actions[sample_idx]
-        
+
         return sample_action, eval_action
-    
+
     @torch.no_grad()
-    def critic_lambda_guiding(self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float):
-        
-        trajectory_batch = {k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()}
+    def noise_adding(self, trajectory: Dict[str, torch.Tensor], h):
+
+        cur_state = trajectory["states"][:, self.cfg.traj_length - h, :]
         encode = self.tokenizer_manager.encode(trajectory)
         torch_rcbc_mask = create_rcbc_mask(
             self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
         )
-        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))["actions"] # dist of shape(1, seq_len, act_dim)
-        sample_actions = action_dist.sample((self.cfg.action_samples,))[:, 0, self.cfg.traj_length - h:, 0, :] #(1024, h, act_dim)
-        trajectory_batch['actions'][:, self.cfg.traj_length - h:, :] = sample_actions
+        encode = self.tokenizer_manager.encode(trajectory)
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+        sample_actions = action_dist.mean[0, self.cfg.traj_length - h]
+        noise = torch.randn_like(sample_actions) * 0.09
+        sample_action = sample_actions + noise
+        sample_action = torch.clamp(
+            sample_action, -0.99999, 0.99999
+        )  # TODO: check this
+        eval_action = action_dist.mean[0, self.cfg.traj_length - h]
+        sample_action = sample_actions[0]
+        # print("adding noise")
+
+        return sample_action, eval_action
+
+    @torch.no_grad()
+    def critic_lambda_guiding(
+        self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float
+    ):
+
+        trajectory_batch = {
+            k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()
+        }
+        encode = self.tokenizer_manager.encode(trajectory)
+        torch_rcbc_mask = create_rcbc_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+        sample_actions = action_dist.sample((self.cfg.action_samples,))[
+            :, 0, self.cfg.traj_length - h :, 0, :
+        ]  # (1024, h, act_dim)
+        trajectory_batch["actions"][:, self.cfg.traj_length - h :, :] = sample_actions
         torch_fd_mask = create_fd_mask(
             self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
         )
         encode_batch = self.tokenizer_manager.encode(trajectory_batch)
         decode = self.tokenizer_manager.decode(self.mtm(encode_batch, torch_fd_mask))
-        future_states = decode["states"][:, self.cfg.traj_length - h :, :] #(1024, h, state_dim)
-        future_rewards = decode["rewards"][:, self.cfg.traj_length - h :, :] #(1024, h, 1)
+        future_states = decode["states"][
+            :, self.cfg.traj_length - h :, :
+        ]  # (1024, h, state_dim)
+        future_rewards = decode["rewards"][
+            :, self.cfg.traj_length - h :, :
+        ]  # (1024, h, 1)
         expect_return = torch.zeros((self.cfg.action_samples,), device=self.cfg.device)
         for t in range(h):
-            values = torch.zeros((self.cfg.action_samples, t+1), device=self.cfg.device)
-            discounts = torch.cumprod(self.cfg.discount * torch.ones((t+1,), device=self.cfg.device), dim=0)
+            values = torch.zeros(
+                (self.cfg.action_samples, t + 1), device=self.cfg.device
+            )
+            discounts = torch.cumprod(
+                self.cfg.discount * torch.ones((t + 1,), device=self.cfg.device), dim=0
+            )
             if t > 0:
                 values[:, :t] = future_rewards[:, :t, 0]
-            values[:, t] = self.iql.qf(future_states[:, t], sample_actions[:, t]).squeeze(-1)
+            values[:, t] = self.iql.qf(
+                future_states[:, t], sample_actions[:, t]
+            ).squeeze(-1)
             values *= discounts[None, :]
             if t < h - 1:
-                expect_return += values.sum(dim=-1) * (1 - lmbda) * (lmbda ** t)
+                expect_return += values.sum(dim=-1) * (1 - lmbda) * (lmbda**t)
             else:
-                expect_return += values.sum(dim=-1) * (lmbda ** t)
-        
+                expect_return += values.sum(dim=-1) * (lmbda**t)
+
         expect_return -= torch.max(expect_return)
         score = expect_return * self.cfg.temperature
         p = torch.exp(score) / torch.exp(score).sum()
-        max_idx = torch.argmax(p)
-        eval_action = sample_actions[max_idx, 0]
-        # eval_action = (sample_actions[:, 0] * p[:,None]).sum(dim=0) / p.sum()
+        # max_idx = torch.argmax(p)
+        # eval_action = sample_actions[max_idx, 0]
+        eval_action = (sample_actions[:, 0] * p[:, None]).sum(dim=0) / p.sum()
         sample_idx = torch.multinomial(p, 1)
         sample_action = sample_actions[sample_idx, 0]
-        
-        return sample_action, eval_action    
-                
-        
+
+        return sample_action, eval_action
+
     @torch.no_grad()
     def action_sample(
-        self, sequence_history, percentage=1.0, horizon=4, plan=True, eval=False, rtg=None,
+        self,
+        sequence_history,
+        percentage=1.0,
+        horizon=4,
+        plan=True,
+        eval=False,
+        rtg=None,
     ):
         if eval == True:
             assert rtg is not None
@@ -208,44 +269,64 @@ class Learner(object):
             ): torch.tensor(v, device=self.cfg.device, dtype=torch.float32)
             for k, v in zero_trajectory.items()
         }
-        
+
         if rtg is not None:
-            #Use time-related rtg for eval
+            # Use time-related rtg for eval
             return_to_go = float(rtg)
             returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
-            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(self.cfg.device)
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(
+                self.cfg.device
+            )
         else:
-            #Use a constant rtg for explore
+            # Use a constant rtg for explore
             return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
             return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
 
             return_value = return_min + (return_max - return_min) * percentage
             return_to_go = float(return_value)
             returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
-            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(self.cfg.device)
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(
+                self.cfg.device
+            )
 
+        # TODO: here we categrorize 'add noise' to planning, but actually it's not
         if plan:
             assert self.cfg.plan_guidance in [
                 "critic_guiding",
                 "critic_lambda_guiding",
+                "noise_adding",
             ]
             if self.cfg.plan_guidance == "critic_guiding":
-                sample_action, eval_action = self.critic_guiding(torch_zero_trajectory, horizon)
-                
+                sample_action, eval_action = self.critic_guiding(
+                    torch_zero_trajectory, horizon
+                )
+
             elif self.cfg.plan_guidance == "critic_lambda_guiding":
-                sample_action, eval_action = self.critic_lambda_guiding(torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda)
-                
-        else:  
-            sample_action, eval_action = self.mtm_sampling(torch_zero_trajectory, horizon)
-            
+                sample_action, eval_action = self.critic_lambda_guiding(
+                    torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda
+                )
+
+            elif self.cfg.plan_guidance == "noise_adding":
+                sample_action, eval_action = self.noise_adding(
+                    torch_zero_trajectory, horizon
+                )
+
+        else:
+            sample_action, eval_action = self.mtm_sampling(
+                torch_zero_trajectory, horizon
+            )
+
         if eval:
             return eval_action
         else:
             return sample_action
-    
 
     def compute_mtm_loss(
-        self, batch: Dict[str, torch.Tensor], data_shapes, discrete_map, entropy_reg: float,
+        self,
+        batch: Dict[str, torch.Tensor],
+        data_shapes,
+        discrete_map,
+        entropy_reg: float,
     ):
 
         # calculate future prediction loss
@@ -254,7 +335,7 @@ class Learner(object):
         masked_c_losses = {}
         encoded_batch = self.tokenizer_manager.encode(batch)
         targets = encoded_batch
-        
+
         masks = create_random_autoregressize_mask(
             data_shapes,
             self.cfg.mask_ratio,
@@ -263,7 +344,7 @@ class Learner(object):
             self.cfg.p_weights,
         )
         preds = self.mtm(encoded_batch, masks)
-        
+
         for key in targets.keys():
             target = targets[key]
             pred = preds[key]
@@ -282,9 +363,12 @@ class Learner(object):
             else:
                 if key == "actions":
                     # sperate calc the action loss
-                    raw_loss = nn.MSELoss(reduction="none")(pred.mean, target) * mask[None, :, :, None]
+                    raw_loss = (
+                        nn.MSELoss(reduction="none")(pred.mean, target)
+                        * mask[None, :, :, None]
+                    )
                     losses[key] = raw_loss.mean(dim=(2, 3)).mean()
-                    
+
                     continue
                 else:
                     # apply normalization
@@ -306,21 +390,23 @@ class Learner(object):
             masked_c_losses[key] = masked_c_loss
             masked_losses[key] = masked_loss
 
-            
             loss = torch.sum(torch.stack(list(losses.values())))
-            
-            a = targets["actions"].clip(-1+1e-6, 1-1e-6)
+
+            a = targets["actions"].clip(-1 + 1e-6, 1 - 1e-6)
             a_hat_dist = preds["actions"]
-            log_likelihood = a_hat_dist.log_likelihood(a)[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
-            entropy = a_hat_dist.entropy()[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
+            log_likelihood = a_hat_dist.log_likelihood(a)[
+                :, ~masks["actions"].squeeze().to(torch.bool), :
+            ].mean()
+            entropy = a_hat_dist.entropy()[
+                :, ~masks["actions"].squeeze().to(torch.bool), :
+            ].mean()
             act_loss = -(log_likelihood + entropy_reg * entropy)
-            losses['entropy'] = entropy
-            losses['nll'] = - log_likelihood
-            
+            losses["entropy"] = entropy
+            losses["nll"] = -log_likelihood
+
             loss += act_loss
-        
+
             return loss, losses, masked_losses, masked_c_losses, entropy
-    
 
     def mtm_update(self, batch, data_shapes, discrete_map):
         loss, losses, masked_losses, masked_c_losses, entropy = self.compute_mtm_loss(
@@ -329,7 +415,7 @@ class Learner(object):
         log_dict = {}
         for k, l in losses.items():
             log_dict[f"train/loss_{k}"] = l
-            
+
             if k in masked_losses.keys():
                 log_dict[f"train/masked_loss_{k}"] = masked_losses[k]
             if k in masked_c_losses.keys():
@@ -343,19 +429,21 @@ class Learner(object):
         loss.backward()
         self.mtm_optimizer.step()
         self.mtm_scheduler.step()
-        
+
         self.temp_optimizer.zero_grad()
-        temperature_loss = self.mtm.temperature() * (entropy - self.mtm.target_entropy).detach()
+        temperature_loss = (
+            self.mtm.temperature() * (entropy - self.mtm.target_entropy).detach()
+        )
         temperature_loss.backward()
         self.temp_optimizer.step()
-        
+
         log_dict["train/temperature"] = self.mtm.temperature().item()
         log_dict["train/entropy"] = entropy.item()
 
         return log_dict
 
     def critic_update(self, experience: Tuple[torch.Tensor]):
-        
+
         log_dict = self.iql.train(experience)
 
         return log_dict
@@ -371,11 +459,9 @@ class Learner(object):
         num_videos: int = 3,
     ) -> Dict[str, Any]:
 
-        
         log_data = {}
 
-        
-        for ratio in [0.9, 1.0]:    
+        for ratio in [0.9, 1.0]:
             stats: Dict[str, Any] = defaultdict(list)
             successes = None
             for i in range(num_episodes):
@@ -403,7 +489,11 @@ class Learner(object):
                 while not done and timestep < 1000:
                     current_trajectory["observations"][timestep] = observation
                     action = self.action_sample(
-                        current_trajectory, percentage=1.0, plan=False, eval=True, rtg=episode_rtg_ref[timestep] * ratio
+                        current_trajectory,
+                        percentage=1.0,
+                        plan=False,
+                        eval=True,
+                        rtg=episode_rtg_ref[timestep] * ratio,
                     )
                     action = np.clip(action.cpu().numpy(), -1, 1)
                     new_observation, reward, done, info = self.env.step(action)
@@ -450,14 +540,14 @@ class Learner(object):
                 stats["success"] = successes / num_episodes
             for k, v in stats.items():
                 log_data[f"eval_bc_{ratio}/{k}"] = v
-            
+
             # for idx, v in enumerate(videos):
             #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
             #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
             #     )
 
         return log_data, stats["return_mean"]
-    
+
     @torch.no_grad()
     def evaluate_plan(
         self,
@@ -469,11 +559,9 @@ class Learner(object):
         num_videos: int = 3,
     ) -> Dict[str, Any]:
 
-        
         log_data = {}
 
-        
-        for ratio in [0.9, 1.0]:    
+        for ratio in [0.9, 1.0]:
             stats: Dict[str, Any] = defaultdict(list)
             successes = None
             for i in range(num_episodes):
@@ -501,7 +589,11 @@ class Learner(object):
                 while not done and timestep < 1000:
                     current_trajectory["observations"][timestep] = observation
                     action = self.action_sample(
-                        current_trajectory, percentage=1.0, plan=True, eval=True, rtg=episode_rtg_ref[timestep] * ratio
+                        current_trajectory,
+                        percentage=1.0,
+                        plan=True,
+                        eval=True,
+                        rtg=episode_rtg_ref[timestep] * ratio,
                     )
                     action = np.clip(action.cpu().numpy(), -1, 1)
                     new_observation, reward, done, info = self.env.step(action)
@@ -548,15 +640,16 @@ class Learner(object):
                 stats["success"] = successes / num_episodes
             for k, v in stats.items():
                 log_data[f"eval_plan_{ratio}/{k}"] = v
-            
+
             # for idx, v in enumerate(videos):
             #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
             #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
             #     )
 
         return log_data, stats["return_mean"]
-    
+
     torch.no_grad()
+
     def evaluate_policy(
         self,
         num_episodes: int,
@@ -574,7 +667,7 @@ class Learner(object):
         videos = []
 
         for i in pbar:
-            
+
             observation, done = self.env.reset(), False
             # if len(videos) < num_videos:
             #     try:
@@ -597,7 +690,6 @@ class Learner(object):
             # if len(videos) < num_videos:
             #     videos.append(np.array(imgs[:-1]))
 
-            
             for k in info["episode"].keys():
                 stats[k].append(float(info["episode"][k]))
                 if verbose:
