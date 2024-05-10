@@ -26,11 +26,75 @@ def create_rcbc_mask(
     }
 
 
+def create_fid_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.Tensor]:
+    """Predict the action at idx given expected return, current state
+    and history state-action pair"""
+
+    state_mask = np.zeros(traj_length)
+    state_mask[:] = 1
+    return_mask = np.zeros(traj_length)
+    action_mask = np.zeros(traj_length)
+    if idx > 0:
+        action_mask[:idx] = 1
+    reward_mask = np.zeros(traj_length)
+
+    return {
+        "states": torch.from_numpy(state_mask).to(device),
+        "actions": torch.from_numpy(action_mask).to(device),
+        "rewards": torch.from_numpy(reward_mask).to(device),
+        "returns": torch.from_numpy(return_mask).to(device),
+    }
+
+
+def create_gid_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.Tensor]:
+    """Predict the action at idx given expected return, current state
+    and history state-action pair"""
+
+    state_mask = np.zeros(traj_length)
+    state_mask[:] = 1
+    if idx > 0:
+        state_mask[idx + 1 : -1] = 0
+    return_mask = np.zeros(traj_length)
+    action_mask = np.zeros(traj_length)
+    if idx > 0:
+        action_mask[:idx] = 1
+    reward_mask = np.zeros(traj_length)
+
+    return {
+        "states": torch.from_numpy(state_mask).to(device),
+        "actions": torch.from_numpy(action_mask).to(device),
+        "rewards": torch.from_numpy(reward_mask).to(device),
+        "returns": torch.from_numpy(return_mask).to(device),
+    }
+
+
+def create_pi_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.Tensor]:
+    """Predict the action at idx given expected return, current state
+    and history state-action pair"""
+
+    state_mask = np.zeros(traj_length)
+    state_mask[:] = 1
+    if idx > 0:
+        state_mask[idx + 1 : -1] = 0
+    return_mask = np.zeros(traj_length)
+    action_mask = np.zeros(traj_length)
+    if idx > 0:
+        action_mask[:idx] = 1
+    reward_mask = np.zeros(traj_length)
+
+    return {
+        "states": torch.from_numpy(state_mask).to(device),
+        "actions": torch.from_numpy(action_mask).to(device),
+        "rewards": torch.from_numpy(reward_mask).to(device),
+        "returns": torch.from_numpy(return_mask).to(device),
+    }
+
+
 def create_fd_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.Tensor]:
     """Predict the state at idx given
     action-state pair history"""
     state_mask = np.zeros(traj_length)
-    state_mask[:idx + 1] = 1
+    state_mask[: idx + 1] = 1
     return_mask = np.zeros(traj_length)
     action_mask = np.ones(traj_length)
     reward_mask = np.zeros(traj_length)
@@ -100,8 +164,8 @@ def create_random_autoregressize_mask(
                 masks[k][random_position:, :] = 0
             else:
                 masks[k][random_position + 1 :, :] = 0
-    if masks['actions'].eq(1).all():
-        masks['actions'][-1] = 0
+    if masks["actions"].eq(1).all():
+        masks["actions"][-1] = 0
 
     # print(random_mode, random_position)
     return masks

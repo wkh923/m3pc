@@ -13,6 +13,8 @@ import torch.nn as nn
 import torch.distributions as D
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR
+from matplotlib import pyplot as plt
+
 import tqdm
 import wandb
 import gym
@@ -321,6 +323,292 @@ class Learner(object):
         else:
             return sample_action
 
+    @torch.no_grad()
+    def action_id_sample(
+        self,
+        sequence_history,
+        percentage=1.0,
+        horizon=4,
+        plan=True,
+        eval=False,
+        rtg=None,
+    ):
+        if eval == True:
+            assert rtg is not None
+
+        horizon = self.cfg.horizon
+        end_idx = sequence_history["path_length"]
+        if end_idx + horizon < self.cfg.traj_length:
+            horizon = self.cfg.traj_length - end_idx
+        smart_traj_length = self.cfg.traj_length
+        if end_idx + horizon > 1000:
+            smart_traj_length = smart_traj_length - (end_idx + horizon - 1000)
+        obs_dim = sequence_history["observations"].shape[-1]
+        action_dim = sequence_history["actions"].shape[-1]
+        zero_trajectory = {
+            "observations": np.zeros((1, self.cfg.traj_length, obs_dim)),
+            "actions": np.zeros((1, self.cfg.traj_length, action_dim)),
+            "rewards": np.zeros((1, self.cfg.traj_length, 1)),
+            "values": np.zeros((1, self.cfg.traj_length, 1)),
+        }
+        history_length = self.cfg.traj_length - horizon + 1
+
+        for k in zero_trajectory.keys():
+            zero_trajectory[k][0, :history_length] = sequence_history[k][
+                end_idx - history_length + 1 : end_idx + 1
+            ]
+
+        # but obs can be all traj long
+
+        zero_trajectory["observations"][0, :smart_traj_length] = sequence_history[
+            "observations"
+        ][
+            end_idx
+            - history_length
+            + 1 : end_idx
+            - history_length
+            + 1
+            + self.cfg.traj_length
+        ]
+
+        # TODO: Give future goal state. Now only works for standing hopper
+        # zero_trajectory["observations"][
+        #     0, history_length:, 0
+        # ] = 0  # keep head up and don't move
+
+        # zero_trajectory["observations"][
+        #     0, history_length:, 0
+        # ] = 0.1  # keep head up and don't move
+
+        # zero_trajectory["observations"][0, history_length:, 1] = (
+        #     -3.14 / 2
+        # )  # keep head up and don't move
+
+        # zero_trajectory["observations"][
+        #     0, history_length:, 8
+        # ] = -1.0  # keep head up and don't move
+
+        # zero_trajectory["observations"][
+        #     0, history_length:, 9
+        # ] = 0.5  # keep head up and don't move
+
+        # zero_trajectory["observations"][0, history_length:, 10] = (
+        #     -3.14 / 2
+        # )  # keep head up and don't move
+
+        # zero_trajectory["observations"][0, history_length:, 4] = (
+        #     -3.14 / 2
+        # )  # keep head up and don't move
+
+        # zero_trajectory["observations"][
+        #     0, history_length:, 5
+        # ] = -1.0  # keep head up and don't move
+
+        # zero_trajectory["observations"][
+        #     0, history_length:, 6
+        # ] = -0.5  # keep head up and don't move
+
+        # zero_trajectory["observations"][0, history_length:, 7] = (
+        #     3.14 / 2
+        # )  # keep head up and don't move
+
+        torch_zero_trajectory = {
+            (
+                "states" if k == "observations" else "returns" if k == "values" else k
+            ): torch.tensor(v, device=self.cfg.device, dtype=torch.float32)
+            for k, v in zero_trajectory.items()
+        }
+
+        if rtg is not None:
+            # Use time-related rtg for eval
+            return_to_go = float(rtg)
+            returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(
+                self.cfg.device
+            )
+        else:
+            # Use a constant rtg for explore
+            return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
+            return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
+
+            return_value = return_min + (return_max - return_min) * percentage
+            return_to_go = float(return_value)
+            returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(
+                self.cfg.device
+            )
+
+        idbc_mask = create_gid_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - horizon
+        )
+        encode = self.tokenizer_manager.encode(torch_zero_trajectory)
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, idbc_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+
+        # reconstructed_states = self.tokenizer_manager.decode(
+        #     self.mtm(encode, idbc_mask)
+        # )["states"]
+
+        # real_states = torch_zero_trajectory["states"]
+
+        # focus on diff between real and reconstructed states of dim 0 and 1
+
+        # print("0-real", real_states[0, :, 0])
+        # print("0-mbtt", reconstructed_states[0, :, 0])
+        # print("=====================================")
+
+        # print("1-real", real_states[0, :, 1])
+        # print("1-mbtt ", reconstructed_states[0, :, 1])
+        # print("=====================================")
+        # plt.plot(
+        #     reconstructed_states[0, :, 0].cpu().numpy(),
+        #     reconstructed_states[0, :, 1].cpu().numpy(),
+        # )
+        # plt.show()
+
+        sample_action = action_dist.sample()[0, self.cfg.traj_length - horizon]
+
+        eval_action = action_dist.mean[0, self.cfg.traj_length - horizon]
+
+        if eval:
+            return eval_action
+        else:
+            return sample_action
+
+    @torch.no_grad()
+    def action_piid_sample(
+        self,
+        sequence_history,
+        percentage=1.0,
+        horizon=4,
+        plan=True,
+        eval=False,
+        rtg=None,
+    ):
+        if eval == True:
+            assert rtg is not None
+
+        horizon = self.cfg.horizon
+        end_idx = sequence_history["path_length"]
+        if end_idx + horizon < self.cfg.traj_length:
+            horizon = self.cfg.traj_length - end_idx
+        smart_traj_length = self.cfg.traj_length
+        if end_idx + horizon > 1000:
+            smart_traj_length = smart_traj_length - (end_idx + horizon - 1000)
+        obs_dim = sequence_history["observations"].shape[-1]
+        action_dim = sequence_history["actions"].shape[-1]
+        zero_trajectory = {
+            "observations": np.zeros((1, self.cfg.traj_length, obs_dim)),
+            "actions": np.zeros((1, self.cfg.traj_length, action_dim)),
+            "rewards": np.zeros((1, self.cfg.traj_length, 1)),
+            "values": np.zeros((1, self.cfg.traj_length, 1)),
+        }
+        history_length = self.cfg.traj_length - horizon + 1
+
+        for k in zero_trajectory.keys():
+            zero_trajectory[k][0, :history_length] = sequence_history[k][
+                end_idx - history_length + 1 : end_idx + 1
+            ]
+
+        # but obs can be all traj long
+
+        zero_trajectory["observations"][0, :smart_traj_length] = sequence_history[
+            "observations"
+        ][
+            end_idx
+            - history_length
+            + 1 : end_idx
+            - history_length
+            + 1
+            + self.cfg.traj_length
+        ]
+
+        torch_zero_trajectory = {
+            (
+                "states" if k == "observations" else "returns" if k == "values" else k
+            ): torch.tensor(v, device=self.cfg.device, dtype=torch.float32)
+            for k, v in zero_trajectory.items()
+        }
+
+        if rtg is not None:
+            # Use time-related rtg for eval
+            return_to_go = float(rtg)
+            returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(
+                self.cfg.device
+            )
+        else:
+            # Use a constant rtg for explore
+            return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
+            return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
+
+            return_value = return_min + (return_max - return_min) * percentage
+            return_to_go = float(return_value)
+            returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(
+                self.cfg.device
+            )
+
+        full_id_mask = create_fid_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - horizon
+        )
+
+        pi_mask = create_pi_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - horizon
+        )
+
+        encode = self.tokenizer_manager.encode(torch_zero_trajectory)
+
+        state_inference = self.tokenizer_manager.decode(self.mtm(encode, pi_mask))[
+            "states"
+        ]
+
+        # full the states
+        torch_zero_trajectory["states"][
+            :, self.cfg.traj_length - horizon + 2 : -1, :
+        ] = state_inference[:, self.cfg.traj_length - horizon + 2 : -1, :]
+
+        torch_zero_trajectory["states"][:, : self.cfg.traj_length - horizon + 1, :] = (
+            state_inference[:, : self.cfg.traj_length - horizon + 1, :]
+        )
+
+        re_encode = self.tokenizer_manager.encode(torch_zero_trajectory)
+
+        action_dist = self.tokenizer_manager.decode(self.mtm(re_encode, full_id_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+
+        # reconstructed_states = self.tokenizer_manager.decode(
+        #     self.mtm(encode, idbc_mask)
+        # )["states"]
+
+        # real_states = torch_zero_trajectory["states"]
+
+        # focus on diff between real and reconstructed states of dim 0 and 1
+
+        # print("0-real", real_states[0, :, 0])
+        # print("0-mbtt", reconstructed_states[0, :, 0])
+        # print("=====================================")
+
+        # print("1-real", real_states[0, :, 1])
+        # print("1-mbtt ", reconstructed_states[0, :, 1])
+        # print("=====================================")
+        # plt.plot(
+        #     reconstructed_states[0, :, 0].cpu().numpy(),
+        #     reconstructed_states[0, :, 1].cpu().numpy(),
+        # )
+        # plt.show()
+
+        sample_action = action_dist.sample()[0, self.cfg.traj_length - horizon]
+
+        eval_action = action_dist.mean[0, self.cfg.traj_length - horizon]
+
+        if eval:
+            return eval_action
+        else:
+            return sample_action
+
     def compute_mtm_loss(
         self,
         batch: Dict[str, torch.Tensor],
@@ -500,6 +788,145 @@ class Learner(object):
                     current_trajectory["actions"][timestep] = action
                     current_trajectory["rewards"][timestep] = reward
                     observation = new_observation
+                    timestep += 1
+                    current_trajectory["path_length"] += 1
+                    # if len(videos) < num_videos:
+                    #     try:
+                    #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
+                    #     except:
+                    #         imgs.append(self.env.render()[::-1])
+
+                # if len(videos) < num_videos:
+                #     videos.append(np.array(imgs[:-1]))
+
+                if "episode" in info:
+                    for k in info["episode"].keys():
+                        stats[k].append(float(info["episode"][k]))
+                        if verbose:
+                            print(f"{k}:{info['episode'][k]}")
+
+                    ret = info["episode"]["return"]
+                    mean = np.mean(stats["return"])
+                    if "is_success" in info:
+                        if successes is None:
+                            successes = 0.0
+                        successes += info["is_success"]
+
+                else:
+                    stats["return"].append(current_trajectory["rewards"].sum())
+                    stats["length"].append(current_trajectory["path_length"])
+
+            new_stats = {}
+            for k, v in stats.items():
+                new_stats[k + "_mean"] = float(np.mean(v))
+                new_stats[k + "_std"] = float(np.std(v))
+
+            if all_results:
+                new_stats.update(stats)
+            stats = new_stats
+            if successes is not None:
+                stats["success"] = successes / num_episodes
+            for k, v in stats.items():
+                log_data[f"eval_bc_{ratio}/{k}"] = v
+
+            # for idx, v in enumerate(videos):
+            #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
+            #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
+            #     )
+
+        return log_data, stats["return_mean"]
+
+    @torch.no_grad()
+    def shot(
+        self,
+        num_episodes: int,
+        episode_rtg_ref: np.ndarray,
+        disable_tqdm: bool = True,
+        verbose: bool = False,
+        all_results: bool = False,
+        num_videos: int = 3,
+    ) -> Dict[str, Any]:
+
+        log_data = {}
+
+        for ratio in [0.9, 1.0]:
+            stats: Dict[str, Any] = defaultdict(list)
+            successes = None
+            for i in range(num_episodes):
+                current_trajectory = {
+                    "observations": np.zeros(
+                        (1000, self.env.observation_space.shape[0]), dtype=np.float32
+                    ),
+                    "actions": np.zeros(
+                        (1000, self.env.action_space.shape[0]), dtype=np.float32
+                    ),
+                    "rewards": np.zeros((1000, 1), dtype=np.float32),
+                    "values": np.zeros((1000, 1), dtype=np.float32),
+                    "total_return": 0,
+                    "path_length": 0,
+                }
+
+                # read 1000 obs from file
+                current_trajectory["observations"] = np.loadtxt(
+                    "/home/hu/mtm/research/zoo/observation-rot.txt"
+                )
+
+                # current_trajectory["observations"][0:300, :] = current_trajectory[
+                #     "observations"
+                # ][80:380, :]
+
+                # # set 101:1000 to 0:100
+                # current_trajectory["observations"][60:, :] = current_trajectory[
+                #     "observations"
+                # ][:60, :].repeat(20, axis=0)[:940]
+
+                # current_trajectory["observations"][120:, :] = current_trajectory[
+                #     "observations"
+                # ][200, :]
+
+                enlarge = 1.0
+                current_trajectory["observations"][:, 0] *= enlarge
+                current_trajectory["observations"][:, 1] *= enlarge
+                current_trajectory["observations"][:, 8] *= enlarge
+                current_trajectory["observations"][:, 9] *= enlarge
+                current_trajectory["observations"][:, 10] *= enlarge
+
+                observation, done = self.env.reset(), False
+                # if len(videos) < num_videos:
+                #     try:
+                #         imgs = [self.env.sim.render(64, 48, camera_name="track")[::-1]]
+                #     except:
+                #         imgs = [self.env.render()[::-1]]
+
+                timestep = 0
+                while not done and timestep < 1000:
+                    current_trajectory["observations"][timestep] = observation
+                    action = self.action_id_sample(
+                        current_trajectory,
+                        percentage=1.0,
+                        plan=False,
+                        eval=True,
+                        rtg=episode_rtg_ref[timestep] * ratio,
+                    )
+                    action = np.clip(action.cpu().numpy(), -1, 1)
+                    new_observation, reward, done, info = self.env.step(action)
+                    self.env.render(
+                        mode="human", width=800, height=200, camera_id=-1
+                    )  # Render the environment to visualize
+                    # pause for 1 second
+                    print("step: ", timestep)
+
+                    # if timestep % 10 == 0:
+                    #     plt.clf()
+
+                    #     fig = plt.imshow(frame)
+                    #     plt.show(block=True)
+
+                    current_trajectory["actions"][timestep] = action
+                    current_trajectory["rewards"][timestep] = reward
+                    observation = new_observation
+                    if timestep % 20 == 0:
+                        print("observation: ", observation)
                     timestep += 1
                     current_trajectory["path_length"] += 1
                     # if len(videos) < num_videos:
