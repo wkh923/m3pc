@@ -1,4 +1,4 @@
-from research.finetune_omtm.masks import *
+from research.zeroshot_omtm.masks import *
 from research.finetune_omtm.model import *
 from research.omtm.models.mtm_model import omtm
 from research.omtm.tokenizers.base import TokenizerManager
@@ -845,6 +845,8 @@ class Learner(object):
         verbose: bool = False,
         all_results: bool = False,
         num_videos: int = 3,
+        way_points_path: str = None,
+        two_stage: bool = False,
     ) -> Dict[str, Any]:
 
         log_data = {}
@@ -867,29 +869,7 @@ class Learner(object):
                 }
 
                 # read 1000 obs from file
-                current_trajectory["observations"] = np.loadtxt(
-                    "/home/hu/mtm/research/zoo/observation-rot.txt"
-                )
-
-                # current_trajectory["observations"][0:300, :] = current_trajectory[
-                #     "observations"
-                # ][80:380, :]
-
-                # # set 101:1000 to 0:100
-                # current_trajectory["observations"][60:, :] = current_trajectory[
-                #     "observations"
-                # ][:60, :].repeat(20, axis=0)[:940]
-
-                # current_trajectory["observations"][120:, :] = current_trajectory[
-                #     "observations"
-                # ][200, :]
-
-                enlarge = 1.0
-                current_trajectory["observations"][:, 0] *= enlarge
-                current_trajectory["observations"][:, 1] *= enlarge
-                current_trajectory["observations"][:, 8] *= enlarge
-                current_trajectory["observations"][:, 9] *= enlarge
-                current_trajectory["observations"][:, 10] *= enlarge
+                current_trajectory["observations"] = np.loadtxt(way_points_path)
 
                 observation, done = self.env.reset(), False
                 # if len(videos) < num_videos:
@@ -901,13 +881,22 @@ class Learner(object):
                 timestep = 0
                 while not done and timestep < 1000:
                     current_trajectory["observations"][timestep] = observation
-                    action = self.action_piid_sample(
-                        current_trajectory,
-                        percentage=1.0,
-                        plan=False,
-                        eval=True,
-                        rtg=episode_rtg_ref[timestep] * ratio,
-                    )
+                    if two_stage:
+                        action = self.action_piid_sample(
+                            current_trajectory,
+                            percentage=1.0,
+                            plan=False,
+                            eval=True,
+                            rtg=episode_rtg_ref[timestep] * ratio,
+                        )
+                    else:
+                        action = self.action_id_sample(
+                            current_trajectory,
+                            percentage=1.0,
+                            plan=False,
+                            eval=True,
+                            rtg=episode_rtg_ref[timestep] * ratio,
+                        )
                     action = np.clip(action.cpu().numpy(), -1, 1)
                     new_observation, reward, done, info = self.env.step(action)
                     self.env.render(

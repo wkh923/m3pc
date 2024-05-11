@@ -104,11 +104,53 @@ def make_unseen_env(
     all_envs = gym.envs.registry.all()
     env_ids = [env_spec.id for env_spec in all_envs]
 
+    white = False
+    name_corri_map = {
+        "halfcheetah-medium-replay-v2": "HalfCheetah-v3",
+        "hopper-medium-v2": "Hopper-v3",
+        "walker2d-medium-v2": "Walker2d-v3",
+    }
+
     if env_name in env_ids:
         # replace the "v2" in env_name with "v3" to get the unseen version, TODO: currently fix to Hopper-v3
-        env_name = "HalfCheetah-v2"  # "HalfCheetah-v2"
-        env = gym.make(env_name)
-        # env = gym.make(env_name, terminate_when_unhealthy=False)
+        assert env_name in [
+            "halfcheetah-medium-replay-v2",
+            "hopper-medium-v2",
+            "walker2d-medium-v2",
+        ], "env_name not in the list"
+
+        if white is False:
+            if env_name == "halfcheetah-medium-replay-v2":
+                env_name = "HalfCheetah-v3"
+                env = gym.make(env_name)
+            elif env_name == "hopper-medium-v2":
+                env_name = "Hopper-v3"
+                env = gym.make(env_name, terminate_when_unhealthy=False)
+            else:
+                env_name = "Walker2d-v3"
+                env = gym.make(env_name, terminate_when_unhealthy=False)
+
+        else:
+            if env_name == "halfcheetah-medium-replay-v2":
+                env_name = "HalfCheetah-v3"
+                env = gym.make(
+                    env_name,
+                    xml_file="/home/hu/mtm/research/zeroshot_omtm/assets/white_cheeta.xml",
+                )
+            elif env_name == "hopper-medium-v2":
+                env_name = "Hopper-v3"
+                env = gym.make(
+                    env_name,
+                    terminate_when_unhealthy=False,
+                    xml_file="/home/hu/mtm/research/zeroshot_omtm/assets/white_hopper.xml",
+                )
+            else:
+                env_name = "Walker2d-v3"
+                env = gym.make(
+                    env_name,
+                    terminate_when_unhealthy=False,
+                    xml_file="/home/hu/mtm/research/zeroshot_omtm/assets/white_walker.xml",
+                )
     else:
         domain_name, task_name = env_name.split("-")
         env = wrappers.DMCEnv(
