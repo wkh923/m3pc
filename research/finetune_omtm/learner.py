@@ -561,7 +561,7 @@ class Learner(object):
 
         log_data = {}
 
-        for ratio in [0.9, 1.0]:
+        for ratio in [1.0]:
             stats: Dict[str, Any] = defaultdict(list)
             successes = None
             for i in range(num_episodes):
