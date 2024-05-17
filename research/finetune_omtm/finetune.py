@@ -388,12 +388,12 @@ def main(hydra_cfg):
                 log_dict[f"eval/masked_c_loss_{k}"] = v
             log_dict[f"eval/entropy"] = entropy.item()
 
-            # val_dict, _ = learner.evaluate(
-            #     num_episodes=10, episode_rtg_ref=buffer.values_up_bound
-            # )
+            val_dict, _ = learner.evaluate(
+                num_episodes=10, episode_rtg_ref=buffer.values_up_bound
+            )
             if cfg.plan is True:
                 plan_dict, _ = learner.evaluate_plan(
-                    num_episodes=10, episode_rtg_ref=buffer.values_up_bound
+                    num_episodes=5, episode_rtg_ref=buffer.values_up_bound
                 )
             val_dict = plan_dict
             # iql_dict, _ = learner.evaluate_policy(num_episodes=10)

@@ -1,14 +1,14 @@
 local_cuda_rank: 0
 # because working dictionary is "....../mtm/outputs/2024-03-05/13-19-37"
-pretrain_model_path: ../../../outputs/omtm_mae/hopper-medium-replay/hopper-medium-replay-v2_140010.pt
+pretrain_model_path: ../../../outputs/omtm_mae/hopper-medium/hopper-medium-v2_140010.pt
 pretrain_args:
-    env_name: hopper-medium-replay-v2
+    env_name: hopper-medium-v2
     traj_length: 8
 
 pretrain_dataset:
     _target_: research.omtm.datasets.d4rl_ds.get_datasets
     seq_steps: ???
-    env_name: hopper-medium-replay-v2
+    env_name: hopper-medium-v2
     use_reward: true
     seed: 0
     discount: 1.5

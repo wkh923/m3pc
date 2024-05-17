@@ -230,6 +230,97 @@ class Learner(object):
         sample_action = sample_actions[sample_idx, 0]
 
         return sample_action, eval_action
+    
+    @torch.no_grad()
+    def rtg_guiding(
+        self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float=0.6
+    ):
+        
+        trajectory_batch = {
+            k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()
+        }
+        encode = self.tokenizer_manager.encode(trajectory)
+        torch_rcbc_mask = create_rcbc_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+        sample_actions = action_dist.sample((self.cfg.action_samples,))[
+            :, 0, self.cfg.traj_length - h :, 0, :
+        ]  # (1024, h, act_dim)
+        trajectory_batch["actions"][:, self.cfg.traj_length - h :, :] = sample_actions
+        torch_fd_mask = create_fd_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        encode_batch = self.tokenizer_manager.encode(trajectory_batch)
+        decode = self.tokenizer_manager.decode(self.mtm(encode_batch, torch_fd_mask))
+        future_states = decode["states"][
+            :, self.cfg.traj_length - h :, :
+        ]  # (1024, h, state_dim)
+        future_rewards = decode["rewards"][
+            :, self.cfg.traj_length - h :, :
+        ]  # (1024, h, 1)
+        expect_return = torch.zeros((self.cfg.action_samples,), device=self.cfg.device)
+        for t in range(h):
+            
+            values = torch.zeros(
+                (self.cfg.action_samples, t + 1), device=self.cfg.device
+            )
+            values[:, t] = decode["returns"][:, self.cfg.traj_length - h + t, 0]*1000
+            
+            discounts = torch.cumprod(
+                self.cfg.discount * torch.ones((t + 1,), device=self.cfg.device), dim=0
+            )
+            if t > 0:
+                values[:, :t] = future_rewards[:, :t, 0]
+            values *= discounts[None, :]
+            if t < h - 1:
+                expect_return += values.sum(dim=-1) * (1 - lmbda) * (lmbda**t)
+            else:
+                expect_return += values.sum(dim=-1) * (lmbda**t)
+
+        expect_return -= torch.max(expect_return)
+        score = expect_return * 0.4
+        p = torch.exp(score) / torch.exp(score).sum()
+        # max_idx = torch.argmax(p)
+        # eval_action = sample_actions[max_idx, 0]
+        eval_action = (sample_actions[:, 0] * p[:, None]).sum(dim=0) / p.sum()
+        sample_idx = torch.multinomial(p, 1)
+        sample_action = sample_actions[sample_idx, 0]
+
+        return sample_action, eval_action
+
+        trajectory_batch = {
+            k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()
+        }
+        encode = self.tokenizer_manager.encode(trajectory)
+        torch_rcbc_mask = create_rcbc_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+        sample_actions = action_dist.sample((self.cfg.action_samples,))[
+            :, 0, self.cfg.traj_length - h :, 0, :
+        ]  # (1024, h, act_dim)
+        trajectory_batch["actions"][:, self.cfg.traj_length - h :, :] = sample_actions
+        torch_ret_mask = create_ret_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        encode_batch = self.tokenizer_manager.encode(trajectory_batch)
+        decode = self.tokenizer_manager.decode(self.mtm(encode_batch, torch_ret_mask))
+        expect_return = decode["returns"][:, self.cfg.traj_length - h + 1, 0]
+        expect_return -= torch.max(expect_return)
+        score = expect_return * 10
+        p = torch.exp(score) / torch.exp(score).sum()
+        # max_idx = torch.argmax(p)
+        # eval_action = sample_actions[max_idx, 0]
+        eval_action = (sample_actions[:, 0] * p[:, None]).sum(dim=0) / p.sum()
+        sample_idx = torch.multinomial(p, 1)
+        sample_action = sample_actions[sample_idx, 0]
+
+        return sample_action, eval_action
 
     @torch.no_grad()
     def action_sample(
@@ -295,6 +386,7 @@ class Learner(object):
                 "critic_guiding",
                 "critic_lambda_guiding",
                 "noise_adding",
+                "rtg_guiding",
             ]
             if self.cfg.plan_guidance == "critic_guiding":
                 sample_action, eval_action = self.critic_guiding(
@@ -308,6 +400,10 @@ class Learner(object):
 
             elif self.cfg.plan_guidance == "noise_adding":
                 sample_action, eval_action = self.noise_adding(
+                    torch_zero_trajectory, horizon
+                )
+            elif self.cfg.plan_guidance == "rtg_guiding":
+                sample_action, eval_action = self.rtg_guiding(
                     torch_zero_trajectory, horizon
                 )
 
@@ -545,7 +641,7 @@ class Learner(object):
             #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
             #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
             #     )
-
+        print(stats["return_mean"])
         return log_data, stats["return_mean"]
 
     @torch.no_grad()
@@ -645,7 +741,7 @@ class Learner(object):
             #     log_data[f"eval_bc_video_{idx}/video"] = wandb.Video(
             #         v.transpose(0, 3, 1, 2), fps=10, format="gif"
             #     )
-
+        print(stats["return_mean"])
         return log_data, stats["return_mean"]
 
     torch.no_grad()
