@@ -281,7 +281,7 @@ class Learner(object):
                 expect_return += values.sum(dim=-1) * (lmbda**t)
 
         expect_return -= torch.max(expect_return)
-        score = expect_return * 0.4
+        score = expect_return * 0.04
         p = torch.exp(score) / torch.exp(score).sum()
         # max_idx = torch.argmax(p)
         # eval_action = sample_actions[max_idx, 0]
