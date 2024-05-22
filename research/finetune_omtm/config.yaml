@@ -1,6 +1,6 @@
 local_cuda_rank: 0
 # because working dictionary is "....../mtm/outputs/2024-03-05/13-19-37"
-pretrain_model_path: ../../../outputs/omtm_mae/hopper-medium/hopper-medium-v2_140010.pt
+pretrain_model_path: ../../../outputs/omtm_mae/2024-05-21_20-54-49/hopper-medium-v2_140010.pt
 pretrain_args:
     env_name: hopper-medium-v2
     traj_length: 8

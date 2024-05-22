@@ -814,3 +814,105 @@ class omtm(nn.Module):
         ]
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas)
         return optimizer
+    
+    def attention_vis(self, trajectories, masks):
+        """
+        Args:
+            trajectories: (batch_size, T, tokens_per_time, feature_dim)
+            masks: (T,) or (T, tokens_per_time), or (batch_size, T, tokens_per_time)
+        """
+        print(masks)
+        batched_masks = self.process_masks(trajectories, masks)
+        embedded_trajectories = self.trajectory_encoding(trajectories)
+
+        trajectories, ids_restore, keep_lengths = self.forward_encoder(
+            embedded_trajectories, batched_masks
+        )
+
+        encoded_trajectories_with_mask = {}
+        keys = list(trajectories.keys())  # get the keys in a list to maintain order
+        for k in keys:
+            traj = trajectories[k]
+            batch_size = traj.shape[0]
+            assert len(ids_restore[k].shape) == 1
+            num_mask_tokens = ids_restore[k].shape[0] - keep_lengths[k]
+            mask_tokens = self.mask_token_dict[k].repeat(
+                batch_size, num_mask_tokens, 1
+            )  # only in decoder the mask tokens are recovered
+            x_ = torch.cat([traj, mask_tokens], dim=1)
+            assert (
+                ids_restore[k].shape[0] == x_.shape[1]
+            ), f"{ids_restore[k]}, {x_.shape}"
+
+            # re organize the indicies to be in their original positions
+            x_ = torch.gather(
+                x_,
+                1,
+                ids_restore[k][None, :, None].repeat(batch_size, 1, traj.shape[-1]),
+            )
+            encoded_trajectories_with_mask[k] = x_
+
+        decoder_embedded_trajectories = self._decoder_trajectory_encoding(
+            encoded_trajectories_with_mask
+        )
+        concat_trajectories = torch.cat(
+            [decoder_embedded_trajectories[k] for k in keys], dim=1
+        )
+        
+        b, _, d = concat_trajectories.shape
+        for layer in self.decoder.layers:
+            _, attention = layer.self_attn(concat_trajectories, concat_trajectories, concat_trajectories, average_attn_weights=True)
+            attention_matrix = attention.mean(dim=0).detach().cpu().numpy()
+            return attention_matrix
+    
+    @staticmethod
+    def generate_image(attention_matrix):    
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+        # Define specific color maps for each modality
+        # Initialize the plot
+        fig, ax = plt.subplots(figsize=(10, 3))
+
+        # Define specific color maps for each modality
+        color_maps = [plt.cm.Blues, plt.cm.Reds, plt.cm.Greens, plt.cm.Purples]
+        mod_colored_attention_matrix = np.zeros(attention_matrix.shape + (4,))
+        norm = mcolors.Normalize(vmin=np.min(attention_matrix), vmax=0.3)
+        # Create an empty array to hold the colored attention matrix
+        for m in range(4):
+            mod_colored_attention_matrix[:,8*m:8*m+8] = color_maps[m](norm(attention_matrix[:,8*m:8*m+8]))
+            
+        colored_attention_matrix = mod_colored_attention_matrix[:8, ...]
+        colored_attention_matrix = colored_attention_matrix[:, :32]
+        colored_attention_matrix = colored_attention_matrix.reshape(1, 8, 4, 8, 4)
+        colored_attention_matrix = colored_attention_matrix.transpose(1, 0, 3, 2, 4)
+        colored_attention_matrix = colored_attention_matrix.reshape(8, 32, 4)
+        
+
+        ax.imshow(colored_attention_matrix, aspect='auto')
+        ax.set_title('Full Cross-Modal Attention')
+        ax.set_xlabel('Key positions')
+        ax.set_ylabel('Query positions')
+
+        plt.tight_layout()
+        plt.savefig(f"full_modal_attention_state.png")
+        plt.close()
+        fig, ax = plt.subplots(figsize=(10, 3))
+        colored_attention_matrix = mod_colored_attention_matrix[8:16, ...]
+        colored_attention_matrix = colored_attention_matrix[:, :32]
+        colored_attention_matrix = colored_attention_matrix.reshape(1, 8, 4, 8, 4)
+        colored_attention_matrix = colored_attention_matrix.transpose(1, 0, 3, 2, 4)
+        colored_attention_matrix = colored_attention_matrix.reshape(8, 32, 4)
+        
+
+        ax.imshow(colored_attention_matrix, aspect='auto')
+        ax.set_title('Full Cross-Modal Attention')
+        ax.set_xlabel('Key positions')
+        ax.set_ylabel('Query positions')
+
+        plt.tight_layout()
+        plt.savefig(f"full_modal_attention_action.png")
+        plt.close()
+        
+        
+            
+            

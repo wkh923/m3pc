@@ -170,6 +170,69 @@ class Learner(object):
         # print("adding noise")
 
         return sample_action, eval_action
+    
+    @torch.no_grad()
+    def noise_adding_lambda(self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float):
+     
+        trajectory_batch = {
+            k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()
+        }
+        encode = self.tokenizer_manager.encode(trajectory)
+        torch_rcbc_mask = create_rcbc_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+        sample_actions = action_dist.mean[0, self.cfg.traj_length - h:, 0, :]
+        noise = torch.randn((self.cfg.action_samples,) + sample_actions.shape, device=self.cfg.device) * 0.09
+        sample_actions = sample_actions + noise
+        sample_actions = torch.clamp(
+            sample_actions, -0.99999, 0.99999
+        )# (1024, h, act_dim)
+        trajectory_batch["actions"][:, self.cfg.traj_length - h :, :] = sample_actions
+        torch_fd_mask = create_fd_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
+        )
+        encode_batch = self.tokenizer_manager.encode(trajectory_batch)
+        decode = self.tokenizer_manager.decode(self.mtm(encode_batch, torch_fd_mask))
+        future_states = decode["states"][
+            :, self.cfg.traj_length - h :, :
+        ]  # (1024, h, state_dim)
+        future_rewards = decode["rewards"][
+            :, self.cfg.traj_length - h :, :
+        ]  # (1024, h, 1)
+        expect_return = torch.zeros((self.cfg.action_samples,), device=self.cfg.device)
+        for t in range(h):
+            values = torch.zeros(
+                (self.cfg.action_samples, t + 1), device=self.cfg.device
+            )
+            discounts = torch.cumprod(
+                self.cfg.discount * torch.ones((t + 1,), device=self.cfg.device), dim=0
+            )
+            if t > 0:
+                values[:, :t] = future_rewards[:, :t, 0]
+            values[:, t] = self.iql.qf(
+                future_states[:, t], sample_actions[:, t]
+            ).squeeze(-1)
+            values *= discounts[None, :]
+            if t < h - 1:
+                expect_return += values.sum(dim=-1) * (1 - lmbda) * (lmbda**t)
+            else:
+                expect_return += values.sum(dim=-1) * (lmbda**t)
+
+        expect_return -= torch.max(expect_return)
+        score = expect_return * self.cfg.temperature
+        p = torch.exp(score) / torch.exp(score).sum()
+        # max_idx = torch.argmax(p)
+        # eval_action = sample_actions[max_idx, 0]
+        eval_action = (sample_actions[:, 0] * p[:, None]).sum(dim=0) / p.sum()
+        sample_idx = torch.multinomial(p, 1)
+        sample_action = sample_actions[sample_idx, 0]
+
+        return sample_action, eval_action
+    
+    
 
     @torch.no_grad()
     def critic_lambda_guiding(
@@ -387,6 +450,7 @@ class Learner(object):
                 "critic_lambda_guiding",
                 "noise_adding",
                 "rtg_guiding",
+                "noise_adding_lambda",
             ]
             if self.cfg.plan_guidance == "critic_guiding":
                 sample_action, eval_action = self.critic_guiding(
@@ -395,6 +459,10 @@ class Learner(object):
 
             elif self.cfg.plan_guidance == "critic_lambda_guiding":
                 sample_action, eval_action = self.critic_lambda_guiding(
+                    torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda
+                )
+            elif self.cfg.plan_guidance == "noise_adding_lambda":
+                sample_action, eval_action = self.noise_adding_lambda(
                     torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda
                 )
 
@@ -439,6 +507,11 @@ class Learner(object):
             self.cfg.device,
             self.cfg.p_weights,
         )
+        # masks = create_goal_condition_mask(self.cfg.traj_length, self.cfg.device, 4)
+        # attention_matrix = self.mtm.attention_vis(encoded_batch, masks)
+        # self.mtm.generate_image(attention_matrix)
+        
+        
         preds = self.mtm(encoded_batch, masks)
 
         for key in targets.keys():
