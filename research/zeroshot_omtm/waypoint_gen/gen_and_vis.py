@@ -12,9 +12,9 @@ import sys
 head_height = 1.25  # length of the bar in meters
 total_steps = 1000
 
-amplitude = 0.1  # amplitude of the wiggle in radians
-neg_v_offset = 0.1  # offset for the negative velocity # -0.1
-neg_angle_offset = -0.3  # offset for the negative angle # -0.3
+amplitude = 0.05  # amplitude of the wiggle in radians
+neg_v_offset = 0.0  # offset for the negative velocity # -0.1
+neg_angle_offset = 0.0  # -0.3  # offset for the negative angle # -0.3
 
 for total_wiggles in [0.001, 2, 6]:  # different wiggle frequencies for hopper
 

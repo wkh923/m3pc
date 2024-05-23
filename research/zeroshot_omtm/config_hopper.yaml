@@ -5,7 +5,7 @@ pretrain_args:
   env_name: hopper-medium-v2 # hopper-medium-v2 walker2d-medium-v2 halfcheetah-medium-replay-v2
   traj_length: 8
 goal_mask: "piid" # [piid, id]
-waypoints_path: ../../../research/zeroshot_omtm/waypoint_gen/hopper-wiggle-f6.txt
+waypoints_path: ../../../research/zeroshot_omtm/waypoint_gen/hopper-wiggle-f2.txt
 
 pretrain_dataset:
   _target_: research.omtm.datasets.d4rl_ds.get_datasets
