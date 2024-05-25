@@ -160,7 +160,7 @@ class Learner(object):
             "actions"
         ]  # dist of shape(1, seq_len, act_dim)
         sample_actions = action_dist.mean[0, self.cfg.traj_length - h]
-        noise = torch.randn_like(sample_actions) * 0.09
+        noise = torch.randn_like(sample_actions) * 0.05
         sample_action = sample_actions + noise
         sample_action = torch.clamp(
             sample_action, -0.99999, 0.99999
