@@ -865,53 +865,60 @@ class omtm(nn.Module):
             attention_matrix = attention.mean(dim=0).detach().cpu().numpy()
             return attention_matrix
     
+
     @staticmethod
-    def generate_image(attention_matrix):    
+    def generate_image(attention_matrix):
+        
+        import numpy as np
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
+           # Define specific color maps for each modality
+        
         # Define specific color maps for each modality
-        # Initialize the plot
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = plt.subplots(figsize=(10, 4))
 
-        # Define specific color maps for each modality
         color_maps = [plt.cm.Blues, plt.cm.Reds, plt.cm.Greens, plt.cm.Purples]
-        mod_colored_attention_matrix = np.zeros(attention_matrix.shape + (4,))
-        norm = mcolors.Normalize(vmin=np.min(attention_matrix), vmax=0.3)
-        # Create an empty array to hold the colored attention matrix
-        for m in range(4):
-            mod_colored_attention_matrix[:,8*m:8*m+8] = color_maps[m](norm(attention_matrix[:,8*m:8*m+8]))
-            
-        colored_attention_matrix = mod_colored_attention_matrix[:8, ...]
-        colored_attention_matrix = colored_attention_matrix[:, :32]
-        colored_attention_matrix = colored_attention_matrix.reshape(1, 8, 4, 8, 4)
-        colored_attention_matrix = colored_attention_matrix.transpose(1, 0, 3, 2, 4)
-        colored_attention_matrix = colored_attention_matrix.reshape(8, 32, 4)
-        
+        # Adjust the storage matrix for RGB values; dimensions: rows, cols, 4 (for RGBA channels)
+        mod_colored_attention_matrix = np.zeros((attention_matrix.shape[0], attention_matrix.shape[1], 4))
 
-        ax.imshow(colored_attention_matrix, aspect='auto')
-        ax.set_title('Full Cross-Modal Attention')
+        for i in range(attention_matrix.shape[0]):  # Iterate over rows
+            for j in range(4):  # Iterate over each modality block
+                line_segment = attention_matrix[i, 8*j:8*j+8]
+                min_val = np.min(line_segment)
+                max_val = np.max(line_segment)
+                norm = mcolors.Normalize(vmin=min_val, vmax=max_val)
+
+                # Apply colormap directly without reshaping since it naturally returns an Nx4 array
+                mapped_colors = color_maps[j](norm(line_segment))
+                mod_colored_attention_matrix[i, 8*j:8*j+8, :] = mapped_colors
+        # mod_colored_attention_matrix = mod_colored_attention_matrix.reshape(4, 8, 4, 8, 4)
+        # mod_colored_attention_matrix = mod_colored_attention_matrix.transpose(1, 0, 3, 2, 4)
+        # mod_colored_attention_matrix = mod_colored_attention_matrix.reshape(32, 32, 4)
+
+        # Visualization of the full matrix, correctly handling the reshaping
+        # Flatten the matrix to a 2D image with RGBA data
+        # Here, no need for additional reshaping beyond the initial setup
+        ax.imshow(mod_colored_attention_matrix[10].reshape(4, 8, -1), aspect='auto')
+        ax.set_title('Action Attention')
         ax.set_xlabel('Key positions')
         ax.set_ylabel('Query positions')
 
         plt.tight_layout()
-        plt.savefig(f"full_modal_attention_state.png")
+        plt.savefig("full_modal_attention_action.png")
         plt.close()
-        fig, ax = plt.subplots(figsize=(10, 3))
-        colored_attention_matrix = mod_colored_attention_matrix[8:16, ...]
-        colored_attention_matrix = colored_attention_matrix[:, :32]
-        colored_attention_matrix = colored_attention_matrix.reshape(1, 8, 4, 8, 4)
-        colored_attention_matrix = colored_attention_matrix.transpose(1, 0, 3, 2, 4)
-        colored_attention_matrix = colored_attention_matrix.reshape(8, 32, 4)
         
-
-        ax.imshow(colored_attention_matrix, aspect='auto')
-        ax.set_title('Full Cross-Modal Attention')
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.imshow(mod_colored_attention_matrix[3:7].reshape(-1, 4, 8, 4).mean(axis=0), aspect='auto')
+        ax.set_title('State Attention')
         ax.set_xlabel('Key positions')
         ax.set_ylabel('Query positions')
-
+        
         plt.tight_layout()
-        plt.savefig(f"full_modal_attention_action.png")
+        plt.savefig("full_modal_attention_state.png")
         plt.close()
+
+
+
         
         
             

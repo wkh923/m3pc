@@ -388,14 +388,14 @@ def main(hydra_cfg):
                 log_dict[f"eval/masked_c_loss_{k}"] = v
             log_dict[f"eval/entropy"] = entropy.item()
 
-            val_dict, _ = learner.evaluate(
-                num_episodes=10, episode_rtg_ref=buffer.values_up_bound
-            )
-            if cfg.plan is True:
-                plan_dict, _ = learner.evaluate_plan(
-                    num_episodes=5, episode_rtg_ref=buffer.values_up_bound
-                )
-            val_dict = plan_dict
+            # val_dict, _ = learner.evaluate(
+            #     num_episodes=10, episode_rtg_ref=buffer.values_up_bound
+            # )
+            # if cfg.plan is True:
+            #     plan_dict, _ = learner.evaluate_plan(
+            #         num_episodes=5, episode_rtg_ref=buffer.values_up_bound
+            #     )
+            # val_dict = plan_dict
             # iql_dict, _ = learner.evaluate_policy(num_episodes=10)
             # val_dict.update(iql_dict)
 
@@ -403,7 +403,7 @@ def main(hydra_cfg):
             learner.iql.qf.train()
             learner.iql.vf.train()
             learner.iql.actor.train()
-            val_dict["time/eval_step_time"] = time.time() - start_time
+            # val_dict["time/eval_step_time"] = time.time() - start_time
 
             if "hopper" in cfg.env_name:
                 return_max = 4000
@@ -434,7 +434,7 @@ def main(hydra_cfg):
             buffer.p_return_list.clear()
             buffer.p_length_list.clear()
 
-            log_dict.update(val_dict)
+            # log_dict.update(val_dict)
             wandb_logger.log(log_dict, step=step)
 
         log_dict["time/iteration_step_time"] = time.time() - B

@@ -500,16 +500,16 @@ class Learner(object):
         encoded_batch = self.tokenizer_manager.encode(batch)
         targets = encoded_batch
 
-        masks = create_random_autoregressize_mask(
-            data_shapes,
-            self.cfg.mask_ratio,
-            self.cfg.traj_length,
-            self.cfg.device,
-            self.cfg.p_weights,
-        )
-        # masks = create_goal_condition_mask(self.cfg.traj_length, self.cfg.device, 4)
-        # attention_matrix = self.mtm.attention_vis(encoded_batch, masks)
-        # self.mtm.generate_image(attention_matrix)
+        # masks = create_random_autoregressize_mask(
+        #     data_shapes,
+        #     self.cfg.mask_ratio,
+        #     self.cfg.traj_length,
+        #     self.cfg.device,
+        #     self.cfg.p_weights,
+        # )
+        masks = create_goal_condition_mask(self.cfg.traj_length, self.cfg.device, 4)
+        attention_matrix = self.mtm.attention_vis(encoded_batch, masks)
+        self.mtm.generate_image(attention_matrix)
         
         
         preds = self.mtm(encoded_batch, masks)
