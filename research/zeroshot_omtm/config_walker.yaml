@@ -79,6 +79,8 @@ finetune_args:
   action_samples: 625
   temperature: 1.0
 
+  index_jump: 40
+
   #replay buffer
   traj_buffer_size: 1000
   trans_buffer_size: 1000000 # 200000

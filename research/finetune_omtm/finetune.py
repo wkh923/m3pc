@@ -150,6 +150,8 @@ class RunConfig:
     horizon: int = 4
     """The horizon for planning, horizon=1 means critic guided search"""
     rtg_percent: float = 1.0
+    
+    index_jump: int = 0
 
 
 def main(hydra_cfg):

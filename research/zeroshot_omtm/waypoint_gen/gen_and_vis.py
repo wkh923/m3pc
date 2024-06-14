@@ -14,9 +14,13 @@ total_steps = 1000
 
 amplitude = 0.05  # amplitude of the wiggle in radians
 neg_v_offset = 0.0  # offset for the negative velocity # -0.1
-neg_angle_offset = 0.0  # -0.3  # offset for the negative angle # -0.3
+neg_angle_offset = -0.0  # offset for the negative angle # -0.3
 
 for total_wiggles in [0.001, 2, 6]:  # different wiggle frequencies for hopper
+    if total_wiggles == 0.001:
+        neg_angle_offset = -0.02
+    else:
+        neg_angle_offset = -0.0
 
     open(
         os.path.join(os.path.dirname(__file__), f"hopper-wiggle-f{total_wiggles}.txt"),
@@ -38,11 +42,11 @@ for total_wiggles in [0.001, 2, 6]:  # different wiggle frequencies for hopper
     head_y = head_height * np.cos(theta)
 
     # Calculate velocities of the head
-    velocity_head_x = np.gradient(head_x, t) + neg_v_offset
-    velocity_head_y = np.gradient(head_y, t)
+    velocity_head_x = np.gradient(head_x, t) * 10 + neg_v_offset
+    velocity_head_y = np.gradient(head_y, t) * 10
 
     # Calculate angular velocities
-    angular_velocity_head = np.gradient(theta, t)
+    angular_velocity_head = np.gradient(theta, t) * 10
     angular_velocity_foot = angular_velocity_head  # opposite of head angular velocity
 
     # State array: [head_x, head_y, head_angle, foot_joint_angle, velocity_head_x, velocity_head_y, angular_velocity_head, angular_velocity_foot]

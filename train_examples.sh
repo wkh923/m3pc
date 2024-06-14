@@ -15,3 +15,4 @@ python research/finetune_omtm/finetune.py wandb.group="omtm_hopper_m_finetune" p
 # Goal Reaching
 # ***************************
 # D4RL Hoppper Wiggle
+python research/zeroshot_omtm/unseen.py --config-name=config_hopper

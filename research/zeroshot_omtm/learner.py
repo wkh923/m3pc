@@ -6,6 +6,7 @@ from research.omtm.datasets.sequence_dataset import Trajectory
 from research.jaxrl.utils import make_env
 from collections import defaultdict
 from typing import Any, Dict
+from time import sleep
 
 import numpy as np
 import torch
@@ -53,6 +54,7 @@ class Learner(object):
             betas=(0.9, 0.999),
         )
         self.eps = 1e-5
+        self.action_list = []
 
         def _schedule(step):
             return 0.5 * (1 + np.cos(step / cfg.num_train_steps * np.pi))
@@ -609,6 +611,140 @@ class Learner(object):
         else:
             return sample_action
 
+    @torch.no_grad()
+    def action_piid_list_sample(
+        self,
+        sequence_history,
+        percentage=1.0,
+        horizon=4,
+        plan=True,
+        eval=False,
+        rtg=None,
+    ):
+        if eval == True:
+            assert rtg is not None
+
+        horizon = self.cfg.horizon
+        end_idx = sequence_history["path_length"]
+        if end_idx + horizon < self.cfg.traj_length:
+            horizon = self.cfg.traj_length - end_idx
+        smart_traj_length = self.cfg.traj_length
+        if end_idx + horizon > 1000:
+            smart_traj_length = smart_traj_length - (end_idx + horizon - 1000)
+        obs_dim = sequence_history["observations"].shape[-1]
+        action_dim = sequence_history["actions"].shape[-1]
+        zero_trajectory = {
+            "observations": np.zeros((1, self.cfg.traj_length, obs_dim)),
+            "actions": np.zeros((1, self.cfg.traj_length, action_dim)),
+            "rewards": np.zeros((1, self.cfg.traj_length, 1)),
+            "values": np.zeros((1, self.cfg.traj_length, 1)),
+        }
+        history_length = self.cfg.traj_length - horizon + 1
+
+        for k in zero_trajectory.keys():
+            zero_trajectory[k][0, :history_length] = sequence_history[k][
+                end_idx - history_length + 1 : end_idx + 1
+            ]
+
+        # but obs can be all traj long
+
+        zero_trajectory["observations"][0, :smart_traj_length] = sequence_history[
+            "observations"
+        ][
+            end_idx
+            - history_length
+            + 1 : end_idx
+            - history_length
+            + 1
+            + self.cfg.traj_length
+        ]
+
+        torch_zero_trajectory = {
+            (
+                "states" if k == "observations" else "returns" if k == "values" else k
+            ): torch.tensor(v, device=self.cfg.device, dtype=torch.float32)
+            for k, v in zero_trajectory.items()
+        }
+
+        if rtg is not None:
+            # Use time-related rtg for eval
+            return_to_go = float(rtg)
+            returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(
+                self.cfg.device
+            )
+        else:
+            # Use a constant rtg for explore
+            return_max = self.tokenizer_manager.tokenizers["returns"].stats.max
+            return_min = self.tokenizer_manager.tokenizers["returns"].stats.min
+
+            return_value = return_min + (return_max - return_min) * percentage
+            return_to_go = float(return_value)
+            returns = return_to_go * np.ones((1, self.cfg.traj_length, 1))
+            torch_zero_trajectory["returns"] = torch.from_numpy(returns).to(
+                self.cfg.device
+            )
+
+        full_id_mask = create_fid_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - horizon
+        )
+
+        pi_mask = create_pi_mask(
+            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - horizon
+        )
+
+        encode = self.tokenizer_manager.encode(torch_zero_trajectory)
+
+        state_inference = self.tokenizer_manager.decode(self.mtm(encode, pi_mask))[
+            "states"
+        ]
+
+        # full the states
+        torch_zero_trajectory["states"][
+            :, self.cfg.traj_length - horizon + 2 : -1, :
+        ] = state_inference[:, self.cfg.traj_length - horizon + 2 : -1, :]
+
+        torch_zero_trajectory["states"][:, : self.cfg.traj_length - horizon + 1, :] = (
+            state_inference[:, : self.cfg.traj_length - horizon + 1, :]
+        )
+
+        re_encode = self.tokenizer_manager.encode(torch_zero_trajectory)
+
+        action_dist = self.tokenizer_manager.decode(self.mtm(re_encode, full_id_mask))[
+            "actions"
+        ]  # dist of shape(1, seq_len, act_dim)
+
+        # reconstructed_states = self.tokenizer_manager.decode(
+        #     self.mtm(encode, idbc_mask)
+        # )["states"]
+
+        # real_states = torch_zero_trajectory["states"]
+
+        # focus on diff between real and reconstructed states of dim 0 and 1
+
+        # print("0-real", real_states[0, :, 0])
+        # print("0-mbtt", reconstructed_states[0, :, 0])
+        # print("=====================================")
+
+        # print("1-real", real_states[0, :, 1])
+        # print("1-mbtt ", reconstructed_states[0, :, 1])
+        # print("=====================================")
+        # plt.plot(
+        #     reconstructed_states[0, :, 0].cpu().numpy(),
+        #     reconstructed_states[0, :, 1].cpu().numpy(),
+        # )
+        # plt.show()
+
+        # sample_action = action_dist.sample()[0, self.cfg.traj_length - horizon]
+
+        # eval_action = action_dist.mean[0, self.cfg.traj_length - horizon]
+
+        self.action_list = [
+            action_dist.mean[0, self.cfg.traj_length - horizon],
+            # action_dist.mean[0, self.cfg.traj_length - horizon + 1],
+            # action_dist.mean[0, self.cfg.traj_length - horizon + 2],
+        ]
+
     def compute_mtm_loss(
         self,
         batch: Dict[str, torch.Tensor],
@@ -785,6 +921,7 @@ class Learner(object):
                     )
                     action = np.clip(action.cpu().numpy(), -1, 1)
                     new_observation, reward, done, info = self.env.step(action)
+                    sleep(10)
                     current_trajectory["actions"][timestep] = action
                     current_trajectory["rewards"][timestep] = reward
                     observation = new_observation
@@ -847,6 +984,7 @@ class Learner(object):
         num_videos: int = 3,
         way_points_path: str = None,
         two_stage: bool = False,
+        list_stage: bool = False,
     ) -> Dict[str, Any]:
 
         log_data = {}
@@ -871,6 +1009,15 @@ class Learner(object):
                 # read 1000 obs from file
                 current_trajectory["observations"] = np.loadtxt(way_points_path)
 
+                index_jump = self.cfg.index_jump
+                father_index = index_jump
+                while father_index < 999:
+                    for i in range(index_jump):
+                        current_trajectory["observations"][father_index - 1 - i] = (
+                            current_trajectory["observations"][father_index]
+                        )
+                    father_index += index_jump + 1
+
                 observation, done = self.env.reset(), False
                 # if len(videos) < num_videos:
                 #     try:
@@ -889,8 +1036,25 @@ class Learner(object):
                             eval=True,
                             rtg=episode_rtg_ref[timestep] * ratio,
                         )
+                    elif list_stage:
+                        if len(self.action_list) == 0:
+                            self.action_piid_list_sample(
+                                current_trajectory,
+                                percentage=1.0,
+                                plan=False,
+                                eval=True,
+                                rtg=episode_rtg_ref[timestep] * ratio,
+                            )
+                        action = self.action_list.pop(0)
                     else:
-                        action = self.action_id_sample(
+                        # action = self.action_id_sample(
+                        #     current_trajectory,
+                        #     percentage=1.0,
+                        #     plan=False,
+                        #     eval=True,
+                        #     rtg=episode_rtg_ref[timestep] * ratio,
+                        # )
+                        action = self.action_sample(
                             current_trajectory,
                             percentage=1.0,
                             plan=False,
@@ -904,6 +1068,7 @@ class Learner(object):
                     )  # Render the environment to visualize
                     # pause for 1 second
                     print("step: ", timestep)
+                    # sleep(0.02)
 
                     # if timestep % 10 == 0:
                     #     plt.clf()
@@ -918,12 +1083,19 @@ class Learner(object):
                         print("observation: ", observation)
                     timestep += 1
                     current_trajectory["path_length"] += 1
+                    if timestep > 1000:
+                        break
                     # if len(videos) < num_videos:
                     #     try:
                     #         imgs.append(self.env.sim.render(64, 48, camera_name="track")[::-1])
                     #     except:
                     #         imgs.append(self.env.render()[::-1])
 
+                # save current_trajectory["observations"] into txt
+                np.savetxt(
+                    "/home/hu/mtm/research/zoo/ood-traj/d4rl.txt",
+                    current_trajectory["observations"],
+                )
                 # if len(videos) < num_videos:
                 #     videos.append(np.array(imgs[:-1]))
 

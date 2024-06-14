@@ -127,6 +127,8 @@ class RunConfig:
     tau: float = 0.1
     """Used to construct replay buffer"""
 
+    index_jump: int = 0
+
     select_mode: str = "uniform"
     """uniform: sample the trajactories randomly;
     prob: assign higher sample probability to trajectories with higher return"""
@@ -158,6 +160,7 @@ def main(hydra_cfg):
 
     hydra_cfg.goal_mask in ["id", "piid"]
     two_stage = True if hydra_cfg.goal_mask == "piid" else False
+    list_stage = True if hydra_cfg.goal_mask == "piid_allout" else False
 
     # TODO: get goal_mask from hydra_cfg
 
@@ -278,6 +281,7 @@ def main(hydra_cfg):
                 episode_rtg_ref=buffer.values_up_bound,
                 way_points_path=waypoint_path,
                 two_stage=two_stage,
+                list_stage=list_stage,
             )
 
             val_dict["time/eval_step_time"] = time.time() - start_time

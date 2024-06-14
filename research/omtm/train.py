@@ -558,6 +558,7 @@ class RunConfig:
     1 means train state only every step.
     2 means train state only every other step, etc.
     """
+    index_jump: int = 0
 
 
 @torch.inference_mode()
