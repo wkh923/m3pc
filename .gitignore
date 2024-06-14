@@ -32,27 +32,3 @@ outputs*
 *.swp
 
 
-# exorl
-research/exorl/__pycache__/
-research/exorl/.ipynb_checkpoints/
-research/exorl/exp_local
-research/exorl/output
-research/exorl/nbs
-research/exorl/tmp/
-research/exorl/notebooks/
-research/exorl/slurm/
-research/exorl/data/
-research/exorl/datasets/
-
-# iql
-research/Implicit-Q-Learning
-research/Implicit-Q-Learning/imgs
-research/Implicit-Q-Learning/trained_models
-research/Implicit-Q-Learning/wandb
-
-# new iql
-research/IQL-REP/imgs
-research/IQL-REP/trained_models
-research/IQL-REP/wandb
-
-trained_models/

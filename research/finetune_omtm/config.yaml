@@ -1,6 +1,5 @@
 local_cuda_rank: 0
-# because working dictionary is "....../mtm/outputs/2024-03-05/13-19-37"
-pretrain_model_path: ../../../outputs/omtm_mae/2024-05-21_20-54-49/hopper-medium-v2_140010.pt
+pretrain_model_path: ../../../outputs/omtm_mae/hopper-medium-v2_140010.pt
 pretrain_args:
     env_name: hopper-medium-v2
     traj_length: 8
@@ -45,7 +44,7 @@ finetune_args:
     traj_batch_size: 512
     trans_batch_size: 256
     using_online_threshold: 5000
-    warmup_steps: 0 # 1000000
+    warmup_steps: 1000000 # warmup training steps for IQL-based value estimator 
     num_train_steps: 10000000 # very large number, process actually controlled by explore_steps
     explore_steps: 1000000
     learning_rate: 1e-4
@@ -71,7 +70,7 @@ finetune_args:
     #plan 
     plan: True
     rtg_percent: 1.0 # [0.8 1.0]
-    plan_guidance: "critic_guiding" # [critic_guiding, critic_lambda_guiding, noise_adding]
+    plan_guidance: "critic_lambda_guiding" # [critic_guiding, critic_lambda_guiding, noise_adding]
     lmbda: 0.6
     expectile: 0.7
     horizon: 4

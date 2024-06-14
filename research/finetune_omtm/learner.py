@@ -354,37 +354,6 @@ class Learner(object):
 
         return sample_action, eval_action
 
-        trajectory_batch = {
-            k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()
-        }
-        encode = self.tokenizer_manager.encode(trajectory)
-        torch_rcbc_mask = create_rcbc_mask(
-            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
-        )
-        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
-            "actions"
-        ]  # dist of shape(1, seq_len, act_dim)
-        sample_actions = action_dist.sample((self.cfg.action_samples,))[
-            :, 0, self.cfg.traj_length - h :, 0, :
-        ]  # (1024, h, act_dim)
-        trajectory_batch["actions"][:, self.cfg.traj_length - h :, :] = sample_actions
-        torch_ret_mask = create_ret_mask(
-            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
-        )
-        encode_batch = self.tokenizer_manager.encode(trajectory_batch)
-        decode = self.tokenizer_manager.decode(self.mtm(encode_batch, torch_ret_mask))
-        expect_return = decode["returns"][:, self.cfg.traj_length - h + 1, 0]
-        expect_return -= torch.max(expect_return)
-        score = expect_return * 10
-        p = torch.exp(score) / torch.exp(score).sum()
-        # max_idx = torch.argmax(p)
-        # eval_action = sample_actions[max_idx, 0]
-        eval_action = (sample_actions[:, 0] * p[:, None]).sum(dim=0) / p.sum()
-        sample_idx = torch.multinomial(p, 1)
-        sample_action = sample_actions[sample_idx, 0]
-
-        return sample_action, eval_action
-
     @torch.no_grad()
     def action_sample(
         self,
@@ -500,17 +469,13 @@ class Learner(object):
         encoded_batch = self.tokenizer_manager.encode(batch)
         targets = encoded_batch
 
-        # masks = create_random_autoregressize_mask(
-        #     data_shapes,
-        #     self.cfg.mask_ratio,
-        #     self.cfg.traj_length,
-        #     self.cfg.device,
-        #     self.cfg.p_weights,
-        # )
-        masks = create_goal_condition_mask(self.cfg.traj_length, self.cfg.device, 4)
-        attention_matrix = self.mtm.attention_vis(encoded_batch, masks)
-        self.mtm.generate_image(attention_matrix)
-        
+        masks = create_random_autoregressize_mask(
+            data_shapes,
+            self.cfg.mask_ratio,
+            self.cfg.traj_length,
+            self.cfg.device,
+            self.cfg.p_weights,
+        )
         
         preds = self.mtm(encoded_batch, masks)
 

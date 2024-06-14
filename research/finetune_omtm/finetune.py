@@ -228,20 +228,6 @@ def main(hydra_cfg):
         discrete_map,
     )
 
-    # if cfg.warmup_steps > 0:
-
-    #     for i in range(cfg.warmup_steps * 10):
-    #         batch = buffer.trans_sample()
-    #         critic_log = learner.critic_update(batch)
-
-    #         if i % 5000 == 0:
-
-    #             learner.iql.actor.eval()
-    #             learner.evaluate_policy(num_episodes=10)
-    #             learner.iql.actor.train()
-
-    #     torch.save(learner.iql.state_dict(),f"init_iql.pt")
-
     # create a wandb logger and log params of interest
     wandb_cfg_log_dict = OmegaConf.to_container(hydra_cfg)
     wandb_cfg_log_dict["*discrete_map"] = discrete_map
@@ -293,8 +279,6 @@ def main(hydra_cfg):
                     f"D4RL score: {eval_score:.3f}"
                 )
                 print("---------------------------------------")
-
-        torch.save(learner.iql.state_dict(), f"init_iql.pt")
 
     step = 0
 

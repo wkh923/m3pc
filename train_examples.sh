@@ -1,14 +1,17 @@
 # ***************************
-# Running MTM
+# Pretrain 
 # ***************************
-# MTM on D4RL Hoppper Medium-Replay
-python research/mtm/train.py +exp_mtm=d4rl_cont wandb.project="11_mtm_d4rl_4_3" args.seed=0 dataset.env_name=hopper-medium-replay-v2 "args.mask_patterns=[AUTO_MASK]"
+# D4RL Hoppper Medium
+python research/omtm/train.py +exp_mtm=d4rl_cont wandb.project="omtm_hopper_m" args.seed=0 dataset.env_name=hopper-medium-v2 "args.mask_patterns=[AUTO_MASK]"
 
 
 # ***************************
-# Running Heteromodal MTM
+# Finetune
 # ***************************
-# Heteromodal MTM 0.01 with actions 0.95 with states only
-python research/mtm/train.py +exp_mtm=d4rl_halfcheetah_o3 "args.mask_patterns=[ID,AUTO_MASK]" wandb.project="11_mtm_d4rl_4_5" args.seed=0 dataset.train_val_split=0.01
-# Vanilla MTM 0.01 of the dataset
-python research/mtm/train.py +exp_mtm=d4rl_cont dataset.train_val_split=0.01 dataset.env_name=halfcheetah-expert-v2 "args.mask_patterns=[AUTO_MASK]" wandb.project="11_mtm_d4rl_4_5" args.seed=0
+# D4RL Hoppper Medium
+python research/finetune_omtm/finetune.py wandb.group="omtm_hopper_m_finetune" pretrain_model_path=../../../outputs/omtm_mae/hopper-medium-v2_140010.pt finetune_args.plan_guidance=critic_lambda_guiding pretrain_args.env_name=hopper-medium-v2 pretrain_dataset.env_name=hopper-medium-v2 finetune_args.seed=1 finetune_args.explore_steps=200000
+
+# ***************************
+# Goal Reaching
+# ***************************
+# D4RL Hoppper Wiggle

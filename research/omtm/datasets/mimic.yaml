@@ -1,8 +1,0 @@
-# @package dataset
-_target_: research.omtm.datasets.d4rl_ds.get_datasets
-seq_steps: ???
-env_name: "mimic"
-use_reward: True
-seed: 0
-discount: 1.0
-train_val_split: 0.95

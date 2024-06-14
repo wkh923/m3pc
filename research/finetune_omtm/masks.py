@@ -41,23 +41,6 @@ def create_fd_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.T
         "rewards": torch.from_numpy(reward_mask).to(device),
         "returns": torch.from_numpy(return_mask).to(device),
     }
-def create_goal_condition_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.Tensor]:
-    idx=2
-    state_mask = np.zeros(traj_length)
-    state_mask[: idx + 1] = 1
-    state_mask[-1] = 1
-    return_mask = np.zeros(traj_length)
-    action_mask = np.zeros(traj_length)
-    if idx > 0:
-        action_mask[:idx] = 1
-    reward_mask = np.zeros(traj_length)
-
-    return {
-        "states": torch.from_numpy(state_mask).to(device),
-        "actions": torch.from_numpy(action_mask).to(device),
-        "rewards": torch.from_numpy(reward_mask).to(device),
-        "returns": torch.from_numpy(return_mask).to(device),
-    }
 
 def create_ret_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.Tensor]:
     """Predict the return at for idx state action pair given"""
