@@ -27,9 +27,9 @@ pip install -r requirements_dev.txt
 refer to `train_exsamples.sh`
 
 # License & Acknowledgements
-This source code is licensed under the MIT license found in the LICENSE file in the root directory of this source tree. This is not an official Meta product.
+This source code is licensed under the MIT license found in the LICENSE file in the root directory of this source tree. 
 
 This project builds on top of or utilizes the following third party dependencies.
- * [FangchenLiu/MaskDP_public](https://github.com/FangchenLiu/MaskDP_public): Masked Decision Prediction, which this work builds upon
+ * [facebookresearch/mtm](https://github.com/facebookresearch/mtm): Masked Trajectory Modeling, which this work builds upon
  * [ikostrikov/jaxrl](https://github.com/ikostrikov/jaxrl): A fast Jax library for RL. We used this environment wrapping and data loading code for all d4rl experiments.
  * [brentyi/tyro](https://github.com/brentyi/tyro): Argument parsing and configuration
