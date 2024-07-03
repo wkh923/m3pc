@@ -70,12 +70,12 @@ finetune_args:
     #plan 
     plan: True
     rtg_percent: 1.0 # [0.8 1.0]
-    plan_guidance: "critic_lambda_guiding" # [critic_guiding, critic_lambda_guiding, noise_adding]
+    plan_guidance: "critic_lambda_guiding" # [critic_guiding, critic_lambda_guiding, noise_adding, rtg_guiding]
     lmbda: 0.6
     expectile: 0.7
     horizon: 4
     action_samples: 625
-    temperature: 1.0
+    temperature: 1.0 # 1.0 for IQL estimator, 0.01 for rtg prediction
 
     #replay buffer
     traj_buffer_size: 1000
