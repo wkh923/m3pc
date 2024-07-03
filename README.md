@@ -35,7 +35,7 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
  ```
  python research/omtm/train.py +exp_mtm=d4rl_cont dataset.env_name=hopper-medium-v2 
  ```
- You can alternatively download the pretrain model checkpoints [here](https://polybox.ethz.ch/index.php/s/UBaK1WwziIpxl4d) and extract the file in the root directory:
+ You can also directly download the pretrain model checkpoints [here](https://polybox.ethz.ch/index.php/s/UBaK1WwziIpxl4d) and extract the file in the root directory:
  ```
  tar -xf checkpoints.tar 
  ```
