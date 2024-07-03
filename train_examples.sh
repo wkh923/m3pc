@@ -2,7 +2,7 @@
 # Pretrain 
 # ***************************
 # D4RL Hoppper Medium
-python research/omtm/train.py +exp_mtm=d4rl_cont wandb.project="omtm_hopper_m" args.seed=0 dataset.env_name=hopper-medium-v2 "args.mask_patterns=[AUTO_MASK]"
+python research/omtm/train.py +exp_mtm=d4rl_cont wandb.project="omtm_hopper_m" args.seed=0 dataset.env_name=hopper-medium-v2 args.mask_patterns=[AUTO_MASK]
 
 
 # ***************************

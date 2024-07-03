@@ -2,21 +2,16 @@ from research.finetune_omtm.masks import *
 from research.finetune_omtm.model import *
 from research.omtm.models.mtm_model import omtm
 from research.omtm.tokenizers.base import TokenizerManager
-from research.omtm.datasets.sequence_dataset import Trajectory
-from research.jaxrl.utils import make_env
 from collections import defaultdict
 from typing import Any, Dict
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.distributions as D
-import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR
 import tqdm
-import wandb
 import gym
-import os
+
 
 
 class Learner(object):
@@ -104,6 +99,7 @@ class Learner(object):
         }
         self.iql = ImplicitQLearning(**iql_kwargs)
 
+    # Sample from an return-conditioned action distribution 
     @torch.no_grad()
     def mtm_sampling(self, trajectory: Dict[str, torch.Tensor], h):
 
@@ -119,34 +115,8 @@ class Learner(object):
         eval_action = action_dist.mean[0, self.cfg.traj_length - h]
         return sample_action, eval_action
 
-    @torch.no_grad()
-    def critic_guiding(self, trajectory: Dict[str, torch.Tensor], h):
 
-        cur_state = trajectory["states"][:, self.cfg.traj_length - h, :]
-        encode = self.tokenizer_manager.encode(trajectory)
-        torch_rcbc_mask = create_rcbc_mask(
-            self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
-        )
-        encode = self.tokenizer_manager.encode(trajectory)
-        action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
-            "actions"
-        ]  # dist of shape(1, seq_len, act_dim)
-        sample_actions = action_dist.sample((1024,))[
-            :, 0, self.cfg.traj_length - h, 0, :
-        ]  # (30, act_dim)
-        sample_states = cur_state.repeat(1024, 1)
-        values = self.iql.qf(sample_states, sample_actions).squeeze(-1)
-        values -= torch.max(values)
-        values *= self.cfg.temperature
-        p = torch.exp(values) / torch.exp(values).sum()
-        # max_idx = torch.argmax(p)
-        # eval_action = sample_actions[max_idx]
-        eval_action = (sample_actions * p[:, None]).sum(dim=0) / p.sum()
-        sample_idx = torch.multinomial(p, 1)
-        sample_action = sample_actions[sample_idx]
-
-        return sample_action, eval_action
-
+    # Add fixed-variance noise to return-conditioned action prediction
     @torch.no_grad()
     def noise_adding(self, trajectory: Dict[str, torch.Tensor], h):
 
@@ -171,6 +141,7 @@ class Learner(object):
 
         return sample_action, eval_action
     
+    # Add fixed-variance noise to return-conditioned action prediction and perform TD-lambda guiding
     @torch.no_grad()
     def noise_adding_lambda(self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float):
      
@@ -233,7 +204,7 @@ class Learner(object):
         return sample_action, eval_action
     
     
-
+    # Perform TD-lambda guiding based on return-conditioned action distribution using IQL estimator
     @torch.no_grad()
     def critic_lambda_guiding(
         self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float
@@ -294,6 +265,7 @@ class Learner(object):
 
         return sample_action, eval_action
     
+    # Perform TD-lambda guiding based on return-conditioned action distribution using MTM rtg prediction function
     @torch.no_grad()
     def rtg_guiding(
         self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float=0.6
@@ -344,7 +316,7 @@ class Learner(object):
                 expect_return += values.sum(dim=-1) * (lmbda**t)
 
         expect_return -= torch.max(expect_return)
-        score = expect_return * 0.04
+        score = expect_return * self.cfg.temperature
         p = torch.exp(score) / torch.exp(score).sum()
         # max_idx = torch.argmax(p)
         # eval_action = sample_actions[max_idx, 0]
@@ -415,18 +387,12 @@ class Learner(object):
         # TODO: here we categrorize 'add noise' to planning, but actually it's not
         if plan:
             assert self.cfg.plan_guidance in [
-                "critic_guiding",
                 "critic_lambda_guiding",
-                "noise_adding",
                 "rtg_guiding",
                 "noise_adding_lambda",
             ]
-            if self.cfg.plan_guidance == "critic_guiding":
-                sample_action, eval_action = self.critic_guiding(
-                    torch_zero_trajectory, horizon
-                )
 
-            elif self.cfg.plan_guidance == "critic_lambda_guiding":
+            if self.cfg.plan_guidance == "critic_lambda_guiding":
                 sample_action, eval_action = self.critic_lambda_guiding(
                     torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda
                 )
@@ -435,10 +401,6 @@ class Learner(object):
                     torch_zero_trajectory, horizon, lmbda=self.cfg.lmbda
                 )
 
-            elif self.cfg.plan_guidance == "noise_adding":
-                sample_action, eval_action = self.noise_adding(
-                    torch_zero_trajectory, horizon
-                )
             elif self.cfg.plan_guidance == "rtg_guiding":
                 sample_action, eval_action = self.rtg_guiding(
                     torch_zero_trajectory, horizon
@@ -859,6 +821,3 @@ class Learner(object):
         return log_data, stats["return_mean"]
 
 
-def loss(diff, expectile=0.8):
-    weight = torch.where(diff > 0, expectile, (1 - expectile))
-    return weight * (diff**2)

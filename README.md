@@ -3,8 +3,8 @@ If you want to make an env from scratch
 
 Make a new conda env
 ```
-conda create -n mtm python=3.10
-conda activate mtm
+conda create -n m3pc python=3.10
+conda activate m3pc
 ```
 
 Install torch with gpu
@@ -24,12 +24,28 @@ pip install -r requirements_dev.txt
 
 ### Experiments
 
-refer to `train_exsamples.sh`
+Example commands can be found in `train_exsamples.sh`
+
+The main code for offline RL (with online finetuning) and goal reaching is located in the `finetune_omtm` and `zeroshot_omtm`, respectively. Here is how you can run some of the experiments.
+ * For pretrain: 
+ ```
+ python research/omtm/train.py +exp_mtm=d4rl_cont dataset.env_name=hopper-medium-v2 
+ ```
+ * For offline RL inference:
+ ```
+ python research/finetune_omtm/finetune.py finetune_args.plan_guidance=rtg_guiding pretrain_args.env_name=hopper-medium-v2 pretrain_dataset.env_name=hopper-medium-v2 finetune_args.explore_steps=0 finetune_args.warmup_steps=0
+ ```
+ * For online finetuning:
+ ```
+ python research/finetune_omtm/finetune.py finetune_args.plan_guidance=critic_lambda_guiding pretrain_args.env_name=hopper-medium-v2 pretrain_dataset.env_name=hopper-medium-v2 finetune_args.explore_steps=0 finetune_args.warmup_steps=0
+ ```
+
+ * For goal reaching inference:
+ ```
+ python research/zeroshot_omtm/unseen.py --config-name=config_hopper
+ ```
 
 # License & Acknowledgements
-This source code is licensed under the MIT license found in the LICENSE file in the root directory of this source tree. 
-
-This project builds on top of or utilizes the following third party dependencies.
- * [facebookresearch/mtm](https://github.com/facebookresearch/mtm): Masked Trajectory Modeling, which this work builds upon
+This source code is built upon is licensed [facebookresearch/mtm](https://github.com/facebookresearch/mtm) under the MIT license as well as  the following third party dependencies.
  * [ikostrikov/jaxrl](https://github.com/ikostrikov/jaxrl): A fast Jax library for RL. We used this environment wrapping and data loading code for all d4rl experiments.
  * [brentyi/tyro](https://github.com/brentyi/tyro): Argument parsing and configuration
