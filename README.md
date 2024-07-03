@@ -31,6 +31,11 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
  ```
  python research/omtm/train.py +exp_mtm=d4rl_cont dataset.env_name=hopper-medium-v2 
  ```
+ You can alternatively download the pretrain model checkpoints [here](https://polybox.ethz.ch/index.php/s/UBaK1WwziIpxl4d) and extract the file in the root directory:
+ ```
+ tar -xf checkpoints.tar 
+ mv checkpoints outputs
+ ```
  * For offline RL inference:
  ```
  python research/finetune_omtm/finetune.py finetune_args.plan_guidance=rtg_guiding pretrain_args.env_name=hopper-medium-v2 pretrain_dataset.env_name=hopper-medium-v2 finetune_args.explore_steps=0 finetune_args.warmup_steps=0
@@ -46,6 +51,6 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
  ```
 
 # License & Acknowledgements
-This source code is built upon is licensed [facebookresearch/mtm](https://github.com/facebookresearch/mtm) under the MIT license as well as  the following third party dependencies.
+This source code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm) licensed under the MIT license as well as the following third party dependencies.
  * [ikostrikov/jaxrl](https://github.com/ikostrikov/jaxrl): A fast Jax library for RL. We used this environment wrapping and data loading code for all d4rl experiments.
  * [brentyi/tyro](https://github.com/brentyi/tyro): Argument parsing and configuration
