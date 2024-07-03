@@ -1,4 +1,8 @@
-### Install python packages from scratch
+# M^3PC
+This is the code base for the paper `M^3PC: Runtime Model Predictive Control using Pretrained Masked Trajectory Model`.
+
+
+## Install python packages from scratch
 If you want to make an env from scratch
 
 Make a new conda env
@@ -22,7 +26,7 @@ Optionally install dev packages.
 pip install -r requirements_dev.txt
 ```
 
-### Experiments
+## Experiments
 
 Example commands can be found in `train_exsamples.sh`
 
