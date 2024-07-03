@@ -38,7 +38,6 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
  You can alternatively download the pretrain model checkpoints [here](https://polybox.ethz.ch/index.php/s/UBaK1WwziIpxl4d) and extract the file in the root directory:
  ```
  tar -xf checkpoints.tar 
- mv checkpoints outputs
  ```
  * For offline RL inference:
  ```
