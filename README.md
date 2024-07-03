@@ -1,5 +1,5 @@
 # M^3PC
-This is the code base for the paper `M^3PC: Runtime Model Predictive Control using Pretrained Masked Trajectory Model`.
+This is the code base for the paper `M^3PC: Runtime Model Predictive Control using Pretrained Masked Trajectory Model`. This source code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm).
 
 
 ## Install python packages from scratch
@@ -54,6 +54,5 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
  ```
 
 # License & Acknowledgements
-This source code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm) licensed under the MIT license as well as the following third party dependencies.
- * [ikostrikov/jaxrl](https://github.com/ikostrikov/jaxrl): A fast Jax library for RL. We used this environment wrapping and data loading code for all d4rl experiments.
- * [brentyi/tyro](https://github.com/brentyi/tyro): Argument parsing and configuration
+This work is licensed under BSD 3-Clause License. See [LICENSE](LICENSE) for details. Third-party datasets and tools are subject to their respective licenses.
+
