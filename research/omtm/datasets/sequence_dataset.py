@@ -35,8 +35,8 @@ import tqdm
 import wandb
 from torch.utils.data import IterableDataset
 
-from research.jaxrl.datasets.d4rl_dataset import D4RLDataset
-from research.jaxrl.utils import make_env
+# from research.jaxrl.datasets.d4rl_dataset import D4RLDataset
+# from research.jaxrl.utils import make_env
 from research.omtm.datasets.base import DataStatistics
 from research.omtm.tokenizers.base import TokenizerManager
 
@@ -142,7 +142,7 @@ class SequenceDataset:
     # (https://github.com/jannerm/trajectory-transformer/blob/e0b5f12677a131ee87c65bc01179381679b3cfef/trajectory/datasets/sequence.py#L44)
     def __init__(
         self,
-        dataset: D4RLDataset,
+        dataset,
         discount: float = 0.99,
         sequence_length: int = 32,
         max_path_length: int = 1000,
@@ -286,7 +286,7 @@ class SequenceDataset:
         )
         results, videos = evaluate(
             bc_sampler,
-            self.dataset.env,
+            self.env,
             10,  # TODO: for test 1
             (self.observation_dim,),
             (self.action_dim,),
@@ -871,7 +871,6 @@ def evaluate(
 
         while not done:
             action = sample_actions(observation, trajectory_history)
-            action = np.clip(action, -1, 1)
             new_observation, reward, done, info = env.step(action)
             trajectory_history = trajectory_history.append(observation, action, reward)
             observation = new_observation
@@ -900,7 +899,7 @@ def evaluate(
         else:
             stats["return"].append(trajectory_history.rewards.sum())
             stats["length"].append(len(trajectory_history.rewards))
-            stats["achieved"].append(int(info["goal_achieved"]))
+            
 
     new_stats = {}
     for k, v in stats.items():
