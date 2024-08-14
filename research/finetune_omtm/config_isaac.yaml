@@ -1,17 +1,17 @@
 local_cuda_rank: 0
-pretrain_model_path: ../../../outputs/omtm_mae/hopper-medium-v2_140010.pt
+pretrain_model_path: ../../../outputs/omtm_mae/2024-08-08_21-35-39/unitree_go1_100000.pt
 pretrain_args:
     env_name: hopper-medium-v2
     traj_length: 8
 
-pretrain_dataset:
-    _target_: research.omtm.datasets.d4rl_ds.get_datasets
-    seq_steps: ???
-    env_name: hopper-medium-v2
-    use_reward: true
-    seed: 0
-    discount: 1.5
-    train_val_split: 0.95
+# pretrain_dataset:
+#     _target_: research.omtm.datasets.d4rl_ds.get_datasets
+#     seq_steps: ???
+#     env_name: hopper-medium-v2
+#     use_reward: true
+#     seed: 0
+#     discount: 1.5
+#     train_val_split: 0.95
 
 tokenizers:
     states:
@@ -38,7 +38,7 @@ model_config:
     target_entropy: -3
 
 finetune_args: 
-    _target_: research.finetune_omtm.finetune.RunConfig
+    _target_: research.finetune_omtm.config_isaac.RunConfig
     discount: 0.99
     seed: 0
     traj_batch_size: 512
@@ -94,7 +94,7 @@ finetune_args:
     critic_hidden_size: 256
 
 wandb:
-    project: omtm_finetune
+    project: omtm_finetune_isaac
     entity: f69
     resume: null
     experiment_name: finetune

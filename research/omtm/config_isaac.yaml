@@ -24,14 +24,20 @@ args:
     traj_length: 8
 
     #Debug
-    log_every: 1
-    print_every: 1
-    eval_every: 1
-    save_every: 1
+    # log_every: 1
+    # print_every: 1
+    # eval_every: 1
+    # save_every: 1
 
+    log_every: 100
+    print_every: 1000
+    eval_every: 10000
+    save_every: 10000
+
+    # no eval
     # log_every: 100
     # print_every: 1000
-    # eval_every: 20000
+    # eval_every: 200000000 # very large, so never eval
     # save_every: 10000
 
     device: cuda
@@ -48,7 +54,7 @@ args:
 wandb:
   project: pretrain
   entity: "f69"
-  name: "omtm"
+  name: "omtm-isaac"
   #resume: null
   resume: null
 

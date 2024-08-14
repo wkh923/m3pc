@@ -287,7 +287,7 @@ class SequenceDataset:
         results, videos = evaluate(
             bc_sampler,
             self.env,
-            10,  # TODO: for test 1
+            2,  # TODO: for test 1
             (self.observation_dim,),
             (self.action_dim,),
             num_videos=0,
@@ -300,7 +300,7 @@ class SequenceDataset:
             )
 
         if "returns" in tokenizer_manager.tokenizers:
-            for p in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1]:
+            for p in [ .8, 1.0, 1.1]:
                 bc_sampler = lambda o, t: sample_action_bc2(
                     o,
                     t,
@@ -314,7 +314,7 @@ class SequenceDataset:
                 results, videos = evaluate(
                     bc_sampler,
                     self.dataset.env,
-                    20,
+                    2,
                     (self.observation_dim,),
                     (self.action_dim,),
                     num_videos=0,
@@ -327,7 +327,7 @@ class SequenceDataset:
                     )
 
         if "returns" in tokenizer_manager.tokenizers:
-            for p in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1]:
+            for p in [0.9, 1.0, 1.1]:
                 bc_sampler = lambda o, t: sample_action_bc_two_stage(
                     o,
                     t,
@@ -341,7 +341,7 @@ class SequenceDataset:
                 results, videos = evaluate(
                     bc_sampler,
                     self.dataset.env,
-                    20,
+                    2,
                     (self.observation_dim,),
                     (self.action_dim,),
                     num_videos=0,
@@ -872,6 +872,8 @@ def evaluate(
         while not done:
             action = sample_actions(observation, trajectory_history)
             new_observation, reward, done, info = env.step(action)
+            if done:
+                print("done! now starting espisode", i)
             trajectory_history = trajectory_history.append(observation, action, reward)
             observation = new_observation
             if len(videos) < num_videos:

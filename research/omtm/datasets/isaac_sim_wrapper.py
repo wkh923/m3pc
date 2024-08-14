@@ -88,6 +88,8 @@ class MTMEnvWrapper(VecEnv):
             self.num_privileged_obs = 0
         # reset at the start since the RSL-RL runner does not call reset
         self.env.reset()
+        self.ret_cum = 0
+        self.length_cum = 0
 
     def __str__(self):
         """Returns the wrapper name and the :attr:`env` representation string."""
@@ -114,12 +116,12 @@ class MTMEnvWrapper(VecEnv):
     @property
     def observation_space(self) -> gym.Space:
         """Returns the :attr:`Env` :attr:`observation_space`."""
-        return self.env.observation_space
+        return gym.Space([48])
 
     @property
     def action_space(self) -> gym.Space:
         """Returns the :attr:`Env` :attr:`action_space`."""
-        return self.env.action_space
+        return gym.spaces.Box(low=-0.999, high=0.999, shape=(12, 1), dtype=np.float32)
 
     @classmethod
     def class_name(cls) -> str:
@@ -178,6 +180,8 @@ class MTMEnvWrapper(VecEnv):
     def reset(self) -> tuple[torch.Tensor, dict]:  # noqa: D102
         # reset the environment
         obs_dict, _ = self.env.reset()
+        self.ret_cum = 0
+        self.length_cum = 0
         # return observations
         return (obs_dict["policy"][0].cpu().numpy() -  self.obs_mean) / self.obs_std
 
@@ -199,7 +203,13 @@ class MTMEnvWrapper(VecEnv):
         rew = rew[0].detach().cpu().numpy()
 
         obs = (obs - self.obs_mean) / self.obs_std
-        rew = (rew - self.rew_mean) / self.rew_std
+        # rew = (rew - self.rew_mean) / self.rew_std
+        self.ret_cum += rew.item()
+        self.length_cum += 1
+        extras["episode"]={
+            "return": self.ret_cum,
+            "length": self.length_cum,
+        }
         
         # return the step information
         return obs, rew, dones, extras

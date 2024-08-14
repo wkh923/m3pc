@@ -1,3 +1,53 @@
+"""Script to play a checkpoint if an RL agent from RSL-RL."""
+
+"""Launch Isaac Sim Simulator first."""
+
+import argparse
+
+from omni.isaac.lab.app import AppLauncher
+
+# local imports
+import cli_args  # isort: skip
+# add argparse arguments
+parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
+parser.add_argument("--cpu", action="store_true", default=False, help="Use CPU pipeline.")
+parser.add_argument(
+    "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
+)
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
+parser.add_argument("--task", type=str, default='Isaac-Velocity-Flat-Unitree-Go1-v0', help="Name of the task.")
+parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
+# append RSL-RL cli arguments
+cli_args.add_rsl_rl_args(parser)
+# append AppLauncher cli args
+AppLauncher.add_app_launcher_args(parser)
+args_cli = parser.parse_args()
+
+# launch omniverse app
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
+
+import gymnasium as gym
+import os
+import torch
+import numpy as np
+import h5py
+
+import omni.isaac.rsl_tasks  # noqa: F401
+from rsl_rl.runners import OnPolicyRunner
+
+import omni.isaac.lab_tasks  # noqa: F401
+from omni.isaac.lab_tasks.utils import get_checkpoint_path, parse_env_cfg
+from omni.isaac.lab_tasks.utils.wrappers.rsl_rl import (
+    RslRlOnPolicyRunnerCfg,
+    RslRlVecEnvWrapper,
+    export_policy_as_jit,
+    export_policy_as_onnx,
+)
+
+
+
+
 import os
 import pprint
 import random
@@ -20,6 +70,8 @@ import torch.nn.parallel
 from torch.utils.data.dataloader import DataLoader
 from omegaconf import DictConfig, OmegaConf
 
+
+
 # from research.jaxrl.utils import make_env
 from research.logger import WandBLogger, WandBLoggerConfig, logger, stopwatch
 from research.omtm.datasets.base import DatasetProtocol
@@ -32,8 +84,15 @@ from research.omtm.utils import (
     get_git_hash,
     set_seed_everywhere,
 )
-from research.finetune_omtm.replay_buffer import ReplayBuffer
+
+
+
+from research.finetune_omtm.replay_buffer_isaac import ReplayBuffer
+from research.omtm.datasets.isaac_sim_wrapper import MTMEnvWrapper
+from research.omtm.datasets.isaac_dataset import ISAACDataset
 from research.finetune_omtm.learner import Learner
+
+print("============= import all libs =====================")
 
 
 @dataclass
@@ -69,7 +128,7 @@ class RunConfig:
     save_every: int = 5000
     """Evaluate model every N steps."""
 
-    device: str = "cuda"
+    device: str = "cuda:0"
     """Device to use for training."""
 
     warmup_steps: int = 1_000
@@ -156,16 +215,28 @@ class RunConfig:
 
 def main(hydra_cfg):
     dp: DistributedParams = get_distributed_params()
-    torch.cuda.set_device(hydra_cfg.local_cuda_rank)
+    torch.cuda.set_device(0)
+
+    print("============= begin load hydra param =====================")
+
 
     cfg: RunConfig = hydra.utils.instantiate(hydra_cfg.finetune_args)
-    model_config = hydra.utils.instantiate(hydra_cfg.model_config)
+
     cfg.traj_length = hydra_cfg.pretrain_args.traj_length
     cfg.env_name = hydra_cfg.pretrain_args.env_name
+
+
+    print("============= begin load to cfg =====================")
+
+    model_config = hydra.utils.instantiate(hydra_cfg.model_config)
+
     
-    occupy_tensor = torch.cuda.FloatTensor(256,1024,1024, 12)
+    # occupy_tensor = torch.cuda.FloatTensor(256,1024,1024, 12)
+
+    print("============= end getting cfg =====================")
 
     set_seed_everywhere(cfg.seed)
+    cfg.device = "cuda:0"
     pprint.pp(cfg)
 
     current_path = os.getcwd()
@@ -177,13 +248,21 @@ def main(hydra_cfg):
     pretrain_model_path = os.path.normpath(
         os.path.join(current_path, hydra_cfg.pretrain_model_path)
     )
-    train_dataset: DatasetProtocol
-    val_dataset: DatasetProtocol
-
-    train_dataset, val_dataset, train_raw_dataset = hydra.utils.call(
-        hydra_cfg.pretrain_dataset, seq_steps=cfg.traj_length
+    # train_dataset: DatasetProtocol
+    # val_dataset: DatasetProtocol
+    train_dataset = ISAACDataset()
+    val_dataset = train_dataset
+    env_cfg = parse_env_cfg(
+        args_cli.task, use_gpu=not args_cli.cpu, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric
     )
-    env = make_env(cfg.env_name, cfg.seed)
+    env = gym.make(args_cli.task, cfg=env_cfg)
+    env = MTMEnvWrapper(env)
+    env.align_norm_with_dataset(train_dataset.norm_dict)
+    train_dataset.set_env(env)
+
+    print("================= isaac env finish creation ===============")
+
+    
     val_sampler = torch.utils.data.SequentialSampler(val_dataset)
     val_loader = DataLoader(
         val_dataset,
@@ -205,7 +284,11 @@ def main(hydra_cfg):
         discrete_map[k] = v.discrete
     logger.info(f"Tokenizers: {tokenizers}")
 
-    buffer = ReplayBuffer(cfg, train_raw_dataset, cfg.pretrain_discount)
+    buffer = ReplayBuffer(cfg, None)
+    buffer.set_env(env)
+
+    print("mean and std on device", cfg.device)
+
     obs_mean = torch.tensor(buffer.obs_mean, device=cfg.device)
     obs_std = torch.tensor(buffer.obs_std, device=cfg.device)
     dataloader = iter(buffer)
@@ -269,10 +352,10 @@ def main(hydra_cfg):
             batch = buffer.trans_sample()
             critic_log = learner.critic_update(batch)
 
-            if i % 5000 == 0:
+            if (i + 1) % 50 == 0:
 
                 learner.iql.actor.eval()
-                _, eval_score = learner.evaluate_policy(num_episodes=10)
+                _, eval_score = learner.evaluate_policy(num_episodes=2)
                 learner.iql.actor.train()
 
                 print("---------------------------------------")
@@ -402,6 +485,7 @@ def main(hydra_cfg):
                 step_max = 1000
             else:
                 raise NotImplementedError
+            
             explore_return_hist = np.histogram(
                 buffer.p_return_list, bins=list(range(0, return_max + 1, 50))
             )
@@ -444,7 +528,7 @@ def main(hydra_cfg):
     torch.save(learner.iql.state_dict(), f"iql_{step}.pt")
 
 
-@hydra.main(config_path=".", config_name="config", version_base="1.1")
+@hydra.main(config_path=".", config_name="config_isaac", version_base="1.1")
 def configure_jobs(hydra_data: DictConfig) -> None:
     # logger.info(hydra_data)
     main(hydra_data)

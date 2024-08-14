@@ -773,7 +773,9 @@ class Learner(object):
 
             timestep = 0
             while not done and timestep < 1000:
+                # print("device is :" , self.cfg.device)
                 action = self.iql.actor.act(observation, self.cfg.device)
+                # print("device is :" , self.cfg.device)
                 new_observation, reward, done, info = self.env.step(action)
                 observation = new_observation
                 timestep += 1

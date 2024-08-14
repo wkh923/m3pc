@@ -781,8 +781,7 @@ def _main(hydra_cfg):
     env = gym.make(args_cli.task, cfg=env_cfg)
     env = MTMEnvWrapper(env)
     env.align_norm_with_dataset(train_dataset.norm_dict)
-    train_dataset.emv = env
-    val_dataset.env = env
+    train_dataset.set_env(env)
     logger.info(f"Train set size = {len(train_dataset)}")
     logger.info(f"Validation set size = {len(val_dataset)}")
 
@@ -897,6 +896,13 @@ def _main(hydra_cfg):
     # create the model
     model_config = hydra.utils.instantiate(hydra_cfg.model_config)
     model = model_config.create(data_shapes, cfg.traj_length, discrete_map)
+
+    # Load the checkpoint
+    print("=========now begin load model============")
+    checkpoint = torch.load("/workspace/m3pc/outputs/omtm_mae/2024-08-09_18-01-26/unitree_go1_30000.pt")
+    
+    model.load_state_dict(checkpoint["model"])
+
     model.to(cfg.device)
     model.train()
     if distributed:
@@ -961,6 +967,19 @@ def _main(hydra_cfg):
     wandb_logger = WandBLogger(wandb_cfg_log, wandb_cfg_log_dict)
 
     step = 0
+
+
+
+    # Load state dictionaries
+
+    optimizer.load_state_dict(checkpoint["optimizer"])
+
+    # Restore other parameters
+    step = checkpoint["step"]
+    eval_max = checkpoint["eval_max"]
+
+
+
     eval_max = defaultdict(lambda: -np.inf)
     if wandb_logger.enable and wandb.run.resumed:
         # find checkpoints in the directory

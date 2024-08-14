@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import d4rl
+# import d4rl
 import gym
 import numpy as np
 import torch
@@ -142,6 +142,7 @@ class GaussianPolicy(nn.Module):
 
     @torch.no_grad()
     def act(self, state: np.ndarray, device: str = "cpu"):
+        # print("create state on device", device)
         state = torch.tensor(state.reshape(1, -1), device=device, dtype=torch.float32)
         dist = self(state)
         action = dist.mean if not self.training else dist.sample()

@@ -3,9 +3,10 @@ import torch
 import random
 from typing import List, Callable
 from collections import deque, namedtuple
+import h5py
 
-from research.jaxrl.datasets.d4rl_dataset import D4RLDataset
-from research.jaxrl.utils import make_env
+# from research.jaxrl.datasets.d4rl_dataset import D4RLDataset
+# from research.jaxrl.utils import make_env
 from research.omtm.datasets.sequence_dataset import Trajectory, segment
 from research.finetune_omtm.masks import *
 
@@ -16,15 +17,80 @@ class ReplayBuffer:
     def __init__(
         self,
         cfg,
-        dataset: D4RLDataset,
+        dataset: None,
         discount: float = 0.99,
         max_path_length: int = 1000,
         use_reward: bool = True,
         shuffle: bool = True,
+        dataset_dir: str = "/workspace/m3pc/research/trajectories.h5",
     ):
         self.cfg = cfg
-        self.env = dataset.env
-        self.dataset = dataset
+
+        ### load dataset here
+
+        with h5py.File(dataset_dir, "r") as f:
+            # first load the h5 file to a np cache
+            observations_np = np.array(f["states"][:])
+            actions_np = np.array(f["actions"][:])
+            rewards_np = np.array(f["rewards"][:])
+            terminals_np = np.array(f["dones"][:])
+
+        # find The per-dim mean and zoom-factor to make states and actions have zero mean and stay strictly within [-1+e-4, 1+e-4]
+        # (length, dim)
+        self.observation_mean = np.mean(observations_np, axis=0)
+        self.observation_range = np.max(
+            np.abs(observations_np - self.observation_mean), axis=0
+        )
+        self.action_mean = np.mean(actions_np, axis=0)
+        self.action_range = np.max(np.abs(actions_np - self.action_mean), axis=0)
+
+        # print("observations_np", observations_np[0])
+
+        # for range element is too small, set it to 1e2
+        self.observation_range[self.observation_range < 1e-2] = 1e-2
+
+        # normalize the states and actions
+        observations_np = (observations_np - self.observation_mean) / (
+            self.observation_range
+        )
+
+        # print("observation_range", self.observation_range)
+        actions_np = (actions_np - self.action_mean) / (self.action_range)
+
+        # print(actions_np)
+
+        # further clip the states and actions to [-1+e-4, 1+e-4]
+        observations_np = np.clip(observations_np, -1 + 1e-4, 1 - 1e-4)
+        actions_np = np.clip(actions_np, -1 + 1e-4, 1 - 1e-4)
+
+        # further normalize the rewards, but don't clip them, using normal mean and std
+        self.reward_mean = np.mean(rewards_np)
+        self.reward_std = np.std(rewards_np)
+        rewards_np = (rewards_np - self.reward_mean) / self.reward_std
+
+        self.norm_dict = {
+            "obs_mean": self.observation_mean,
+            "obs_std": self.observation_range,
+            "act_mean": self.action_mean,
+            "act_std": self.action_range,
+            "rew_mean": self.reward_mean,
+            "rew_std": self.reward_std
+        }
+
+        ### end dataset loading, now data still in cache
+
+
+        # now set them else where
+        # self.env = dataset.env
+        # self.dataset = dataset
+
+        # then load the np cache to the dataset
+        self.observations_raw = observations_np
+        self.actions_raw = actions_np
+        self.rewards_raw = rewards_np
+        self.terminals_raw = terminals_np
+
+
         self.max_path_length = max_path_length
         self.sequence_length = cfg.traj_length
         self.traj_batch_size = cfg.traj_batch_size
@@ -40,24 +106,42 @@ class ReplayBuffer:
         self.total_step = 0
 
         # extract data from Dataset
-        self.observations_raw = dataset.observations
         self.obs_mean = self.observations_raw.mean(axis=0)
+        self.obs_mean = np.zeros_like(self.obs_mean) # is for iql only, now don't need
         self.obs_std = self.observations_raw.std(axis=0)
-        self.actions_raw = dataset.actions
-        self.rewards_raw = dataset.rewards.reshape(-1, 1)
-        self.dones_raw = dataset.dones_float
-        self.terminals_raw = dataset.terminals_float
-        self.next_observations_raw = dataset.next_observations
+        self.obs_std = np.ones_like(self.obs_std) # is for iql only, now don't need
+
+        # need extra handle
+        self.dones_raw = np.zeros_like(self.terminals_raw)
+
+        # Find the next '1' to determine the end of the current trajectory
+        next_terminal_idx = np.where(terminals_np[0:, 0] == 1)[0]
+
+        last_cache = 0
+        num_timeout = 0
+
+        for inx in next_terminal_idx:
+            if inx - last_cache == 1000:
+                self.dones_raw[inx,0] = 1
+                num_timeout += 1
+            last_cache = inx
+        
+        print("=== total fully traj:", num_timeout)
+
+        print("obs shape", self.observations_raw.shape)
+        self.next_observations_raw = np.zeros_like(self.observations_raw)
+        self.next_observations_raw[:-1,:] = self.observations_raw[1:,:]
+        self.next_observations_raw[-1,:] = self.observations_raw[-1,:]
 
         ## segment
         self.actions_segmented, self.termination_flags, self.path_lengths = segment(
-            self.actions_raw, self.dones_raw, max_path_length
+            self.actions_raw, self.terminals_raw, max_path_length
         )
         self.observations_segmented, *_ = segment(
-            self.observations_raw, self.dones_raw, max_path_length
+            self.observations_raw, self.terminals_raw, max_path_length
         )
         self.rewards_segmented, *_ = segment(
-            self.rewards_raw, self.dones_raw, max_path_length
+            self.rewards_raw, self.terminals_raw, max_path_length
         )
 
         if discount > 1.0:
@@ -168,6 +252,15 @@ class ReplayBuffer:
         self.p_length_list = []
         self.p_return_list = []
 
+    def set_env(self, env_outside):
+        
+        class dummy_dataset:
+            def __init__(self, env) -> None:
+                self.env = env
+                pass
+
+        self.dataset = dummy_dataset(env_outside)
+        self.env = env_outside
 
     def online_rollout(
         self,

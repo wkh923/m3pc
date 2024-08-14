@@ -195,6 +195,16 @@ class ISAACDataset(seq_d.SequenceDataset):
             "returns": self.values_raw,
         }
 
+    def set_env(self, env_outside):
+        
+        class dummy_dataset:
+            def __init__(self, env) -> None:
+                self.env = env
+                pass
+
+        self.dataset = dummy_dataset(env_outside)
+        self.env = env_outside
+
 
 if __name__ == "__main__":
     dataset = ISAACDataset()
