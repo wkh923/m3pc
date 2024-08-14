@@ -35,4 +35,4 @@ outputs*
 docker
 
 # datasets
-research/*.h5
+*.h5
