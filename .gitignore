@@ -33,3 +33,6 @@ outputs*
 
 # docker
 docker
+
+# datasets
+research/*.h5
