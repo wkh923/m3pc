@@ -161,7 +161,7 @@ def main(hydra_cfg):
     cfg.traj_length = hydra_cfg.pretrain_args.traj_length
     cfg.env_name = hydra_cfg.pretrain_args.env_name
     
-    occupy_tensor = torch.cuda.FloatTensor(256,1024,1024, 12)
+    # occupy_tensor = torch.cuda.FloatTensor(256,1024,1024, 12)
 
     set_seed_everywhere(cfg.seed)
     pprint.pp(cfg)
