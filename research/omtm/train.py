@@ -59,6 +59,7 @@ from research.omtm.masks import (
     create_random_mask,
     create_random_masks,
     create_rcbc_mask,
+    create_forward_srr_mask,
     maybe_add_rew_to_mask,
 )
 from research.omtm.models.mtm_model import omtm, make_plots_with_masks
@@ -965,6 +966,7 @@ def _main(hydra_cfg):
             data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device, cfg.mode_weights
         ),
         MaskType.RCBC: lambda: create_rcbc_mask(cfg.traj_length, cfg.device),
+        MaskType.SRR: lambda: create_forward_srr_mask(cfg.traj_length, cfg.device),
         MaskType.GOAL: lambda: maybe_add_rew_to_mask(
             cfg.traj_length,
             cfg.device,

@@ -42,6 +42,7 @@ class MaskType(Enum):
     RCBC = enum.auto()
     BC_RANDOM = enum.auto()
     AUTO_MASK = enum.auto()
+    SRR = enum.auto()
 
 
 def create_random_mask(
@@ -82,7 +83,25 @@ def create_random_mask(
     random_mask = torch.tensor(random_mask, device=device)
     return random_mask
 
+def create_forward_srr_mask(
+    traj_length: int,
+    device: str,
+) -> Dict[str, np.ndarray]:
+    state_mask = np.zeros(traj_length)
+    reward_mask = np.zeros(traj_length)
+    return_mask = np.zeros(traj_length)
+    index = np.random.randint(0, traj_length - 1)
+    state_mask[:index] = 1
+    reward_mask[:index] = 1
+    return_mask[:index] = 1
+    action_mask = np.ones(traj_length)
 
+    return {
+        "states": torch.from_numpy(state_mask).to(device),
+        "actions": torch.from_numpy(action_mask).to(device),
+        "rewards": torch.from_numpy(reward_mask).to(device),
+        "returns": torch.from_numpy(return_mask).to(device),
+    }
 def create_full_random_mask(
     data_shape: Tuple[int, int],
     traj_length: int,

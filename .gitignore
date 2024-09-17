@@ -33,3 +33,4 @@ outputs*
 
 # docker
 docker
+research/Implicit-Q-Learning/trained_models/*
