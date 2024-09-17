@@ -297,12 +297,14 @@ def create_rcbc_mask(
     action_mask[index:] = 0
     state_mask[index + 1 :] = 0
     return_mask = np.ones(traj_length)
+    reward_mask = np.zeros(traj_length)
     return {
         "states": torch.from_numpy(state_mask).to(device),
         "returns": torch.from_numpy(return_mask).to(
             device
         ),  # returns copies state mask
         "actions": torch.from_numpy(action_mask).to(device),
+        "rewards": torch.from_numpy(reward_mask).to(device),
     }
 
 
