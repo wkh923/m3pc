@@ -728,11 +728,11 @@ def _main(hydra_cfg):
     cfg: RunConfig = hydra.utils.instantiate(hydra_cfg.args)
     dp: DistributedParams = get_distributed_params()
 
-    torch.cuda.set_device(dp.local_rank)
+    torch.cuda.set_device(hydra_cfg.local_cuda_rank)
     distributed = dp.world_size > 1
     if distributed:
         logger.info(
-            f"Initializing rank {dp.rank} (local rank {dp.local_rank}) in total world size {dp.world_size} (local world size {dp.local_world_size}) with master addr:port {dp.master_addr}:{dp.master_port}"
+            f"Initializing rank {dp.rank} (local rank {dp.local_cuda_rank}) in total world size {dp.world_size} (local world size {dp.local_world_size}) with master addr:port {dp.master_addr}:{dp.master_port}"
         )
         torch.distributed.init_process_group(
             backend="nccl", rank=dp.rank, world_size=dp.world_size
