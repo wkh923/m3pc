@@ -36,6 +36,7 @@ model_config:
     latent_dim: null
     init_temperature: 0.1
     target_entropy: -3
+    use_entropy: True
 
 finetune_args: 
     _target_: research.finetune_omtm.finetune.RunConfig
