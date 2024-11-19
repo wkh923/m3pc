@@ -10,7 +10,7 @@ pretrain_dataset:
     env_name: hopper-medium-v2
     use_reward: true
     seed: 0
-    discount: 1.5
+    discount: 1.0
     train_val_split: 0.95
 
 tokenizers:
@@ -61,7 +61,7 @@ finetune_args:
     eval_every: 2000
     save_every: 40000
     
-    # debug
+    # debug 
     # print_every: 1
     # log_every: 1
     # eval_every: 1
@@ -72,7 +72,7 @@ finetune_args:
     rtg_percent: 1.0 # [0.8 1.0]
     plan_guidance: "critic_lambda_guiding" # [critic_guiding, critic_lambda_guiding, noise_adding, rtg_guiding]
     lmbda: 0.6
-    expectile: 0.7
+    expectile: 0.9
     horizon: 4
     action_samples: 625
     temperature: 1.0 # 1.0 for IQL estimator, 0.01 for rtg prediction

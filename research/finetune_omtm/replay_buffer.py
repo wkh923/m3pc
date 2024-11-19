@@ -122,7 +122,7 @@ class ReplayBuffer:
             self.sorted_actions_raw,
             self.sorted_rewards_raw,
             self.sorted_next_observations_raw,
-            self.sorted_terminals_raw,
+            self.sorted_terminals_raw * 0,
         ):
             e = self.experience(state, action, reward, next_state, done)
             self.offline_trans_buffer.append(e)
@@ -227,7 +227,7 @@ class ReplayBuffer:
                 elif timestep == self.max_path_length - 1:
                     print("1000! not done yet!")
                 e = self.experience(
-                    observation, action, reward, new_observation, real_done
+                    observation, action, reward, new_observation, False
                 )  # done is always True at 1000th step
                 
                 self.online_trans_buffer.append(e)
