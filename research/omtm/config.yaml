@@ -12,6 +12,7 @@ model_config:
     n_dec_layer: 1
     n_head: 4
     dropout: 0.1
+    use_entropy: True
     loss_keys: null
     latent_dim: null
 

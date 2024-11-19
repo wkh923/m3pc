@@ -654,6 +654,7 @@ def train_one_batch(
     discrete_map: Dict[str, bool],
     batch: Dict[str, torch.Tensor],
     masks: Dict[str, torch.Tensor],
+    use_entropy: bool=True,
     loss_keys: Sequence[str] = None,
 ) -> Dict[str, Any]:
     encoded_batch = tokenizer_manager.encode(batch)
@@ -670,7 +671,7 @@ def train_one_batch(
         encoded_batch,
         predicted_trajectories,
         masks,
-        model.temperature().detach(),
+        model.temperature().detach() * float(use_entropy),
         discrete_map,
         norm=model_without_ddp.norm,
         reduce_use_sum=model_without_ddp.config.reduce_use_sum,
@@ -1060,6 +1061,7 @@ def _main(hydra_cfg):
                 discrete_map,
                 state_only_batch,
                 masks,
+                model_config.use_entropy,
                 loss_keys=["states", "returns"],
             )
             for k, v in state_only_log_dict.items():
@@ -1092,6 +1094,7 @@ def _main(hydra_cfg):
                 discrete_map,
                 batch,
                 masks,
+                model_config.use_entropy,
             )
             log_dict.update(_log_dict)
             # log train step time = time to process a batch

@@ -418,7 +418,7 @@ def main(hydra_cfg):
             buffer.p_return_list.clear()
             buffer.p_length_list.clear()
 
-            # log_dict.update(val_dict)
+            log_dict.update(val_dict)
             wandb_logger.log(log_dict, step=step)
 
         log_dict["time/iteration_step_time"] = time.time() - B

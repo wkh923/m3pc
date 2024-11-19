@@ -215,6 +215,7 @@ class omtmConfig:
     use_masked_loss: bool = False
     init_temperature: float = 0.1
     target_entropy: float = -3
+    use_entropy: bool = True
 
     def create(self, data_shape, traj_length, discrete_map):
         return omtm(data_shape, traj_length, discrete_map, self)
