@@ -377,7 +377,7 @@ def main(hydra_cfg):
             )
             if cfg.plan is True:
                 plan_dict, _ = learner.evaluate_plan(
-                    num_episodes=5, episode_rtg_ref=buffer.values_up_bound
+                    num_episodes=20, episode_rtg_ref=buffer.values_up_bound
                 )
             val_dict.update(plan_dict)
             # iql_dict, _ = learner.evaluate_policy(num_episodes=10)
