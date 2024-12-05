@@ -238,90 +238,15 @@ def main(hydra_cfg):
         discrete_map,
     )
 
-    # if cfg.warmup_steps > 0:
+    learner.mtm.eval()
 
-    #     for i in range(cfg.warmup_steps * 10):
-    #         batch = buffer.trans_sample()
-    #         critic_log = learner.critic_update(batch)
-
-    #         if i % 5000 == 0:
-
-    #             learner.iql.actor.eval()
-    #             learner.evaluate_policy(num_episodes=10)
-    #             learner.iql.actor.train()
-
-    #     torch.save(learner.iql.state_dict(),f"init_iql.pt")
-
-    # create a wandb logger and log params of interest
-    wandb_cfg_log_dict = OmegaConf.to_container(hydra_cfg)
-    wandb_cfg_log_dict["*discrete_map"] = discrete_map
-    wandb_cfg_log_dict["*path"] = str(os.getcwd())
-    wandb_cfg_log_dict["*git_hash"] = get_git_hash()
-    wandb_cfg_log_dict["*git_dirty"] = get_git_dirty()
-    wandb_cfg_log_dict["*hydra_cfg_hash"] = get_cfg_hash(hydra_cfg)
-    wandb_cfg_log_dict["*num_parameters"] = sum(
-        p.numel() for p in learner.mtm.parameters() if p.requires_grad
+    val_dict, _ = learner.shot(
+        num_episodes=10,
+        episode_rtg_ref=buffer.values_up_bound,
+        way_points_path=waypoint_path,
+        two_stage=two_stage,
+        list_stage=list_stage,
     )
-    # change to hours minute and second
-
-    current_time = datetime.now().strftime("%m%d_%H")
-
-    step = 0
-
-    logger.info(f"starting from step={step}")
-
-    episode = 0
-    while True:
-        if step % cfg.eval_every == 0:
-            start_time = time.time()
-            learner.mtm.eval()
-
-            val_dict, _ = learner.shot(
-                num_episodes=10,
-                episode_rtg_ref=buffer.values_up_bound,
-                way_points_path=waypoint_path,
-                two_stage=two_stage,
-                list_stage=list_stage,
-            )
-
-            val_dict["time/eval_step_time"] = time.time() - start_time
-
-            if "hopper" in cfg.env_name:
-                return_max = 4000
-                step_max = 1000
-            elif "walker2d" in cfg.env_name:
-                return_max = 5000
-                step_max = 1000
-            elif "halfcheetah" in cfg.env_name:
-                return_max = 12000
-                step_max = 1000
-            else:
-                raise NotImplementedError
-            explore_return_hist = np.histogram(
-                buffer.p_return_list, bins=list(range(0, return_max + 1, 50))
-            )
-            explore_length_hist = np.histogram(
-                buffer.p_length_list, bins=list(range(0, step_max + 1, 20))
-            )
-
-            # reset record of return and length, to record the new trajectory's return and length distribution
-            buffer.p_return_list.clear()
-            buffer.p_length_list.clear()
-
-        step += 1
-        if step >= cfg.num_train_steps or buffer.total_step > cfg.explore_steps:
-            break
-
-    torch.save(
-        {
-            "model": learner.mtm.state_dict(),
-            "optimizer": learner.mtm_optimizer.state_dict(),
-            "step": step,
-        },
-        f"mtm_{step}.pt",
-    )
-    torch.save(learner.iql.state_dict(), f"iql_{step}.pt")
-
 
 @hydra.main(config_path=".", config_name="config_cheeta", version_base="1.1")
 def configure_jobs(hydra_data: DictConfig) -> None:
