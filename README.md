@@ -63,6 +63,7 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
  python research/zeroshot_omtm/unseen.py --config-name=config_hopper
  ```
 change `--config-name` and select files from `waypoint_gen` folder for different tasks and different goals.
+You can also try modify the waypoint generation [script](https://github.com/wkh923/m3pc/blob/main/research/zeroshot_omtm/waypoint_gen/gen_and_vis.py) to control the wiggling frequency, visualizaing the waypoints and see to what extent the backward M3PC can follow 'unseen' state trajectory.
 
 # License & Acknowledgements
 This work is licensed under BSD 3-Clause License. See [LICENSE](LICENSE) for details. Third-party datasets and tools are subject to their respective licenses.
