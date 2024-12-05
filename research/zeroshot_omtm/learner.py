@@ -1,25 +1,16 @@
-from research.zeroshot_omtm.masks import *
-from research.finetune_omtm.model import *
-from research.omtm.models.mtm_model import omtm
-from research.omtm.tokenizers.base import TokenizerManager
-from research.omtm.datasets.sequence_dataset import Trajectory
-from research.jaxrl.utils import make_env
 from collections import defaultdict
 from typing import Any, Dict
-from time import sleep
 
+import gym
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.distributions as D
-import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR
-from matplotlib import pyplot as plt
 
-import tqdm
-import wandb
-import gym
-import os
+from research.finetune_omtm.model import *
+from research.omtm.models.mtm_model import omtm
+from research.omtm.tokenizers.base import TokenizerManager
+from research.zeroshot_omtm.masks import *
 
 
 class Learner(object):
@@ -66,7 +57,6 @@ class Learner(object):
             betas=[0.9, 0.999],
         )
 
-        
     @torch.no_grad()
     def action_id_sample(
         self,
@@ -251,9 +241,9 @@ class Learner(object):
             :, self.cfg.traj_length - horizon + 2 : -1, :
         ] = state_inference[:, self.cfg.traj_length - horizon + 2 : -1, :]
 
-        torch_zero_trajectory["states"][:, : self.cfg.traj_length - horizon + 1, :] = (
-            state_inference[:, : self.cfg.traj_length - horizon + 1, :]
-        )
+        torch_zero_trajectory["states"][
+            :, : self.cfg.traj_length - horizon + 1, :
+        ] = state_inference[:, : self.cfg.traj_length - horizon + 1, :]
 
         re_encode = self.tokenizer_manager.encode(torch_zero_trajectory)
 
@@ -363,9 +353,9 @@ class Learner(object):
             :, self.cfg.traj_length - horizon + 2 : -1, :
         ] = state_inference[:, self.cfg.traj_length - horizon + 2 : -1, :]
 
-        torch_zero_trajectory["states"][:, : self.cfg.traj_length - horizon + 1, :] = (
-            state_inference[:, : self.cfg.traj_length - horizon + 1, :]
-        )
+        torch_zero_trajectory["states"][
+            :, : self.cfg.traj_length - horizon + 1, :
+        ] = state_inference[:, : self.cfg.traj_length - horizon + 1, :]
 
         re_encode = self.tokenizer_manager.encode(torch_zero_trajectory)
 
@@ -386,7 +376,6 @@ class Learner(object):
         discrete_map,
         entropy_reg: float,
     ):
-
         # calculate future prediction loss
         losses = {}
         masked_losses = {}
@@ -501,7 +490,6 @@ class Learner(object):
         return log_dict
 
     def critic_update(self, experience: Tuple[torch.Tensor]):
-
         log_dict = self.iql.train(experience)
 
         return log_dict
@@ -519,7 +507,6 @@ class Learner(object):
         two_stage: bool = False,
         list_stage: bool = False,
     ) -> Dict[str, Any]:
-
         log_data = {}
 
         for ratio in [0.9, 1.0]:
@@ -546,9 +533,9 @@ class Learner(object):
                 father_index = index_jump
                 while father_index < 999:
                     for i in range(index_jump):
-                        current_trajectory["observations"][father_index - 1 - i] = (
-                            current_trajectory["observations"][father_index]
-                        )
+                        current_trajectory["observations"][
+                            father_index - 1 - i
+                        ] = current_trajectory["observations"][father_index]
                     father_index += index_jump + 1
 
                 observation, done = self.env.reset(), False
@@ -661,6 +648,5 @@ class Learner(object):
                 stats["success"] = successes / num_episodes
             for k, v in stats.items():
                 log_data[f"eval_bc_{ratio}/{k}"] = v
-
 
         return log_data, stats["return_mean"]

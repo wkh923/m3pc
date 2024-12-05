@@ -78,14 +78,15 @@ def main():
     #         train_dataset, val_dataset = get_datasets(32, e, discount=d)
     #         train_dataset.trajectory_statistics()
     env_name = "antmaze-umaze-v2"
-    train_dataset, val_dataset,_ = get_datasets(32, env_name, discount=1.0)
+    train_dataset, val_dataset, _ = get_datasets(32, env_name, discount=1.0)
     list = []
-    for observation, reward in zip(train_dataset.observations_raw, train_dataset.rewards_raw):
+    for observation, reward in zip(
+        train_dataset.observations_raw, train_dataset.rewards_raw
+    ):
         if reward == 1:
             list.append(observation[:2])
             print(observation[:2])
-    print("mean:", sum(list)/len(list))
-            
+    print("mean:", sum(list) / len(list))
 
 
 if __name__ == "__main__":

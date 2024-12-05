@@ -36,7 +36,6 @@ import wandb
 from torch.utils.data import IterableDataset
 
 from research.jaxrl.datasets.d4rl_dataset import D4RLDataset
-from research.jaxrl.utils import make_env
 from research.omtm.datasets.base import DataStatistics
 from research.omtm.tokenizers.base import TokenizerManager
 

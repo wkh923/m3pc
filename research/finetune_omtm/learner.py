@@ -1,17 +1,17 @@
+from collections import defaultdict
+from typing import Any, Dict
+
+import gym
+import numpy as np
+import torch
+import torch.nn as nn
+import tqdm
+from torch.optim.lr_scheduler import LambdaLR
+
 from research.finetune_omtm.masks import *
 from research.finetune_omtm.model import *
 from research.omtm.models.mtm_model import omtm
 from research.omtm.tokenizers.base import TokenizerManager
-from collections import defaultdict
-from typing import Any, Dict
-
-import numpy as np
-import torch
-import torch.nn as nn
-from torch.optim.lr_scheduler import LambdaLR
-import tqdm
-import gym
-
 
 
 class Learner(object):
@@ -99,10 +99,9 @@ class Learner(object):
         }
         self.iql = ImplicitQLearning(**iql_kwargs)
 
-    # Sample from an return-conditioned action distribution 
+    # Sample from an return-conditioned action distribution
     @torch.no_grad()
     def mtm_sampling(self, trajectory: Dict[str, torch.Tensor], h):
-
         rcbc_mask = create_rcbc_mask(
             self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
         )
@@ -115,11 +114,9 @@ class Learner(object):
         eval_action = action_dist.mean[0, self.cfg.traj_length - h]
         return sample_action, eval_action
 
-
     # Add fixed-variance noise to return-conditioned action prediction
     @torch.no_grad()
     def noise_adding(self, trajectory: Dict[str, torch.Tensor], h):
-
         cur_state = trajectory["states"][:, self.cfg.traj_length - h, :]
         encode = self.tokenizer_manager.encode(trajectory)
         torch_rcbc_mask = create_rcbc_mask(
@@ -140,11 +137,12 @@ class Learner(object):
         # print("adding noise")
 
         return sample_action, eval_action
-    
+
     # Add fixed-variance noise to return-conditioned action prediction and perform TD-lambda guiding
     @torch.no_grad()
-    def noise_adding_lambda(self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float):
-     
+    def noise_adding_lambda(
+        self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float
+    ):
         trajectory_batch = {
             k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()
         }
@@ -155,12 +153,18 @@ class Learner(object):
         action_dist = self.tokenizer_manager.decode(self.mtm(encode, torch_rcbc_mask))[
             "actions"
         ]  # dist of shape(1, seq_len, act_dim)
-        sample_actions = action_dist.mean[0, self.cfg.traj_length - h:, 0, :]
-        noise = torch.randn((self.cfg.action_samples,) + sample_actions.shape, device=self.cfg.device) * 0.09
+        sample_actions = action_dist.mean[0, self.cfg.traj_length - h :, 0, :]
+        noise = (
+            torch.randn(
+                (self.cfg.action_samples,) + sample_actions.shape,
+                device=self.cfg.device,
+            )
+            * 0.09
+        )
         sample_actions = sample_actions + noise
         sample_actions = torch.clamp(
             sample_actions, -0.99999, 0.99999
-        )# (1024, h, act_dim)
+        )  # (1024, h, act_dim)
         trajectory_batch["actions"][:, self.cfg.traj_length - h :, :] = sample_actions
         torch_fd_mask = create_fd_mask(
             self.cfg.traj_length, self.cfg.device, self.cfg.traj_length - h
@@ -202,14 +206,12 @@ class Learner(object):
         sample_action = sample_actions[sample_idx, 0]
 
         return sample_action, eval_action
-    
-    
+
     # Perform TD-lambda guiding based on return-conditioned action distribution using IQL estimator
     @torch.no_grad()
     def critic_lambda_guiding(
         self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float
     ):
-
         trajectory_batch = {
             k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()
         }
@@ -264,13 +266,12 @@ class Learner(object):
         sample_action = sample_actions[sample_idx, 0]
 
         return sample_action, eval_action
-    
+
     # Perform TD-lambda guiding based on return-conditioned action distribution using MTM rtg prediction function
     @torch.no_grad()
     def rtg_guiding(
-        self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float=0.6
+        self, trajectory: Dict[str, torch.Tensor], h: int, lmbda: float = 0.6
     ):
-        
         trajectory_batch = {
             k: v.repeat(self.cfg.action_samples, 1, 1) for k, v in trajectory.items()
         }
@@ -298,12 +299,11 @@ class Learner(object):
         ]  # (1024, h, 1)
         expect_return = torch.zeros((self.cfg.action_samples,), device=self.cfg.device)
         for t in range(h):
-            
             values = torch.zeros(
                 (self.cfg.action_samples, t + 1), device=self.cfg.device
             )
-            values[:, t] = decode["returns"][:, self.cfg.traj_length - h + t, 0]*1000
-            
+            values[:, t] = decode["returns"][:, self.cfg.traj_length - h + t, 0] * 1000
+
             discounts = torch.cumprod(
                 self.cfg.discount * torch.ones((t + 1,), device=self.cfg.device), dim=0
             )
@@ -423,7 +423,6 @@ class Learner(object):
         discrete_map,
         entropy_reg: float,
     ):
-
         # calculate future prediction loss
         losses = {}
         masked_losses = {}
@@ -438,7 +437,7 @@ class Learner(object):
             self.cfg.device,
             self.cfg.p_weights,
         )
-        
+
         preds = self.mtm(encoded_batch, masks)
 
         for key in targets.keys():
@@ -539,7 +538,6 @@ class Learner(object):
         return log_dict
 
     def critic_update(self, experience: Tuple[torch.Tensor]):
-
         log_dict = self.iql.train(experience)
 
         return log_dict
@@ -554,7 +552,6 @@ class Learner(object):
         all_results: bool = False,
         num_videos: int = 3,
     ) -> Dict[str, Any]:
-
         log_data = {}
 
         for ratio in [0.9, 1.0]:
@@ -654,7 +651,6 @@ class Learner(object):
         all_results: bool = False,
         num_videos: int = 3,
     ) -> Dict[str, Any]:
-
         log_data = {}
 
         for ratio in [1.0]:
@@ -754,7 +750,6 @@ class Learner(object):
         all_results: bool = False,
         num_videos: int = 3,
     ) -> Dict[str, Any]:
-
         stats: Dict[str, Any] = defaultdict(list)
         successes = None
 
@@ -763,7 +758,6 @@ class Learner(object):
         videos = []
 
         for i in pbar:
-
             observation, done = self.env.reset(), False
             # if len(videos) < num_videos:
             #     try:
@@ -819,5 +813,3 @@ class Learner(object):
         #     )
 
         return log_data, stats["return_mean"]
-
-

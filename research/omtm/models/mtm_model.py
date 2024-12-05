@@ -21,15 +21,15 @@
 # SOFTWARE.
 
 import dataclasses
+import math
 from typing import Dict, List, Optional, Tuple
 
-import math
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import distributions as pyd
 import wandb
+from torch import distributions as pyd
 
 from research.omtm.tokenizers.base import TokenizerManager
 from research.utils.plot_utils import PlotHandler as ph
@@ -178,9 +178,9 @@ def make_plots_with_masks(
                             vmax + y_range / 5,
                         )
                         ax.legend()
-                        eval_logs[f"{eval_name}/batch={batch_idx}|{i}_{k}"] = (
-                            wandb.Image(ph.plot_as_image(fig))
-                        )
+                        eval_logs[
+                            f"{eval_name}/batch={batch_idx}|{i}_{k}"
+                        ] = wandb.Image(ph.plot_as_image(fig))
 
                     # plot logits for discrete data
                     if i < logit_traj.shape[1]:
@@ -411,7 +411,6 @@ class omtm(nn.Module):
         self.output_head_dict = nn.ModuleDict()
 
         for key, shape in data_shapes.items():
-
             if discrete_map[key]:
                 self.output_head_dict[key] = nn.Sequential(
                     nn.LayerNorm(self.n_embd),
@@ -470,9 +469,12 @@ class omtm(nn.Module):
             else:
                 if key == "actions":
                     # sperate calc the action loss
-                    raw_loss = nn.MSELoss(reduction="none")(pred.mean, target) * mask[None, :, :, None]
+                    raw_loss = (
+                        nn.MSELoss(reduction="none")(pred.mean, target)
+                        * mask[None, :, :, None]
+                    )
                     losses[key] = raw_loss.mean(dim=(2, 3)).mean()
-                    
+
                     continue
                 else:
                     # apply normalization
@@ -512,17 +514,21 @@ class omtm(nn.Module):
             loss = torch.sum(torch.stack(list(losses.values())))
         else:
             loss = torch.sum(torch.stack([losses[key] for key in loss_keys]))
-        
+
         a = targets["actions"]
         a_hat_dist = preds["actions"]
-        log_likelihood = a_hat_dist.log_likelihood(a)[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
-        entropy = a_hat_dist.entropy()[:, ~masks['actions'].squeeze().to(torch.bool), :].mean()
+        log_likelihood = a_hat_dist.log_likelihood(a)[
+            :, ~masks["actions"].squeeze().to(torch.bool), :
+        ].mean()
+        entropy = a_hat_dist.entropy()[
+            :, ~masks["actions"].squeeze().to(torch.bool), :
+        ].mean()
         act_loss = -(log_likelihood + entropy_reg * entropy)
-        losses['entropy'] = entropy
-        losses['nll'] = - log_likelihood
-        
+        losses["entropy"] = entropy
+        losses["nll"] = -log_likelihood
+
         loss += act_loss
-        
+
         return loss, losses, masked_losses, masked_c_losses, entropy
 
     def _index(self, x, use_mask):
@@ -833,13 +839,3 @@ class omtm(nn.Module):
         ]
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas)
         return optimizer
-    
-    
-
-    
-
-
-        
-        
-            
-            

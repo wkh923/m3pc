@@ -1,13 +1,13 @@
+import random
+from collections import deque, namedtuple
+from typing import Callable, List
+
 import numpy as np
 import torch
-import random
-from typing import List, Callable
-from collections import deque, namedtuple
 
-from research.jaxrl.datasets.d4rl_dataset import D4RLDataset
-from research.jaxrl.utils import make_env
-from research.omtm.datasets.sequence_dataset import Trajectory, segment
 from research.finetune_omtm.masks import *
+from research.jaxrl.datasets.d4rl_dataset import D4RLDataset
+from research.omtm.datasets.sequence_dataset import segment
 
 
 class ReplayBuffer:
@@ -104,8 +104,7 @@ class ReplayBuffer:
             "Experience",
             field_names=["state", "action", "reward", "next_state", "done"],
         )
-        
-        
+
         sorted_idx_raw = np.argsort(self.rewards_raw[:, 0], axis=0)[::-1][
             : self.buffer_init_size
         ]
@@ -114,9 +113,7 @@ class ReplayBuffer:
         self.sorted_actions_raw = self.actions_raw[sorted_idx_raw]
         self.sorted_rewards_raw = self.rewards_raw[sorted_idx_raw]
         self.sorted_terminals_raw = self.terminals_raw[sorted_idx_raw]
-        self.sorted_next_observations_raw = self.next_observations_raw[
-            sorted_idx_raw
-        ]
+        self.sorted_next_observations_raw = self.next_observations_raw[sorted_idx_raw]
         for state, action, reward, next_state, done in zip(
             self.sorted_observations_raw,
             self.sorted_actions_raw,
@@ -126,7 +123,6 @@ class ReplayBuffer:
         ):
             e = self.experience(state, action, reward, next_state, done)
             self.offline_trans_buffer.append(e)
-
 
         #  assert len(set(self.path_lengths)) == 1
 
@@ -168,7 +164,6 @@ class ReplayBuffer:
         self.p_length_list = []
         self.p_return_list = []
 
-
     def online_rollout(
         self,
         sample_func: Callable,
@@ -193,7 +188,6 @@ class ReplayBuffer:
         new_trajectories = []
 
         for _ in range(num_trajectories):
-
             current_trajectory = {
                 "observations": np.zeros(
                     (self.max_path_length, self.observation_dim), dtype=np.float32
@@ -229,7 +223,7 @@ class ReplayBuffer:
                 e = self.experience(
                     observation, action, reward, new_observation, False
                 )  # done is always True at 1000th step
-                
+
                 self.online_trans_buffer.append(e)
                 current_trajectory["actions"][timestep] = action
                 current_trajectory["rewards"][timestep] = reward
@@ -276,7 +270,6 @@ class ReplayBuffer:
         return log_dict
 
     def update_buffer(self, new_trajectories: List):
-
         num_new_trajectories = len(new_trajectories)
 
         new_path_lengths = np.array([traj["path_length"] for traj in new_trajectories])
@@ -375,10 +368,17 @@ class ReplayBuffer:
     def trans_sample(self):
         """ "Sample a batch of experinces from transition level replay buffer"""
         if len(self.online_trans_buffer) < self.cfg.using_online_threshold:
-            experiences = random.sample(self.offline_trans_buffer, k=self.trans_batch_size)
+            experiences = random.sample(
+                self.offline_trans_buffer, k=self.trans_batch_size
+            )
         else:
-            online_experiences = random.sample(self.online_trans_buffer, k=self.trans_batch_size//2)
-            offline_experiences = random.sample(self.offline_trans_buffer, k=(self.trans_batch_size - self.trans_batch_size//2))
+            online_experiences = random.sample(
+                self.online_trans_buffer, k=self.trans_batch_size // 2
+            )
+            offline_experiences = random.sample(
+                self.offline_trans_buffer,
+                k=(self.trans_batch_size - self.trans_batch_size // 2),
+            )
             experiences = online_experiences + offline_experiences
 
         states = (

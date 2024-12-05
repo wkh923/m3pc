@@ -32,7 +32,13 @@ Batch = collections.namedtuple(
 
 
 def split_into_trajectories(
-    observations, actions, rewards, masks, terminals_float, dones_float, next_observations
+    observations,
+    actions,
+    rewards,
+    masks,
+    terminals_float,
+    dones_float,
+    next_observations,
 ):
     trajs = [[]]
 

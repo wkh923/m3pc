@@ -1,6 +1,7 @@
+from typing import Dict, Optional, Sequence, Tuple, Union
+
 import numpy as np
 import torch
-from typing import Dict, Optional, Sequence, Tuple, Union
 
 
 def create_rcbc_mask(

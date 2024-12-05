@@ -1,12 +1,8 @@
-import gym
-import time
-import numpy as np
-from matplotlib import pyplot as plt
-
 # get file path dictionary
 import os
-import sys
 
+import numpy as np
+from matplotlib import pyplot as plt
 
 # Constants
 head_height = 1.25  # length of the bar in meters

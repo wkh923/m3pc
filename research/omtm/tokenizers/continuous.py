@@ -24,8 +24,8 @@ import torch
 from numpy.typing import ArrayLike
 
 from research.omtm.datasets.base import DatasetProtocol, DataStatistics
-from research.omtm.tokenizers.base import Tokenizer
 from research.omtm.models.mtm_model import SquashedNormal
+from research.omtm.tokenizers.base import Tokenizer
 
 
 class ContinuousTokenizer(Tokenizer):

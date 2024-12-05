@@ -37,7 +37,7 @@ class D4RLDataset(Dataset):
 
         terminals_float = np.zeros_like(dataset["rewards"])
         dones_float = np.zeros_like(dataset["rewards"])
-        
+
         for i in range(len(terminals_float) - 1):
             if dataset["terminals"][i] == 1.0:
                 terminals_float[i] = 1

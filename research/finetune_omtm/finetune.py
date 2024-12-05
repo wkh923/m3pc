@@ -2,38 +2,33 @@ import os
 import pprint
 import random
 import time
-import wandb
-from collections import defaultdict
-from dataclasses import dataclass, replace, field
-from typing import Any, Callable, Dict, Sequence, Tuple, List, Optional
+from dataclasses import dataclass, replace
 from datetime import datetime
+from typing import Dict, Tuple
 
 import hydra
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.distributed
 import torch.multiprocessing
-import torch.nn.functional as F
 import torch.nn.parallel
-from torch.utils.data.dataloader import DataLoader
+import wandb
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data.dataloader import DataLoader
 
+from research.finetune_omtm.learner import Learner
+from research.finetune_omtm.replay_buffer import ReplayBuffer
 from research.jaxrl.utils import make_env
-from research.logger import WandBLogger, WandBLoggerConfig, logger, stopwatch
+from research.logger import WandBLogger, WandBLoggerConfig, logger
 from research.omtm.datasets.base import DatasetProtocol
 from research.omtm.distributed_utils import DistributedParams, get_distributed_params
 from research.omtm.tokenizers.base import Tokenizer, TokenizerManager
 from research.omtm.utils import (
     get_cfg_hash,
-    get_ckpt_path_from_folder,
     get_git_dirty,
     get_git_hash,
     set_seed_everywhere,
 )
-from research.finetune_omtm.replay_buffer import ReplayBuffer
-from research.finetune_omtm.learner import Learner
 
 
 @dataclass
@@ -150,7 +145,7 @@ class RunConfig:
     horizon: int = 4
     """The horizon for planning, horizon=1 means critic guided search"""
     rtg_percent: float = 1.0
-    
+
     index_jump: int = 0
 
 
@@ -262,13 +257,11 @@ def main(hydra_cfg):
     wandb_logger = WandBLogger(wandb_cfg_log, wandb_cfg_log_dict)
 
     if cfg.warmup_steps > 0:
-
         for i in range(cfg.warmup_steps):
             batch = buffer.trans_sample()
             critic_log = learner.critic_update(batch)
 
             if i % 5000 == 0:
-
                 learner.iql.actor.eval()
                 _, eval_score = learner.evaluate_policy(num_episodes=10)
                 learner.iql.actor.train()
@@ -354,13 +347,17 @@ def main(hydra_cfg):
             val_batch = {
                 k: v.to(cfg.device, non_blocking=True) for k, v in val_batch.items()
             }
-            (loss, losses, masked_losses, masked_c_losses, entropy) = (
-                learner.compute_mtm_loss(
-                    val_batch,
-                    data_shapes,
-                    discrete_map,
-                    learner.mtm.temperature().detach(),
-                )
+            (
+                loss,
+                losses,
+                masked_losses,
+                masked_c_losses,
+                entropy,
+            ) = learner.compute_mtm_loss(
+                val_batch,
+                data_shapes,
+                discrete_map,
+                learner.mtm.temperature().detach(),
             )
 
             log_dict["eval/loss"] = loss.item()

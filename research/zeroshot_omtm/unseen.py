@@ -1,38 +1,23 @@
 import os
 import pprint
-import random
-import time
-import wandb
-from collections import defaultdict
-from dataclasses import dataclass, replace, field
-from typing import Any, Callable, Dict, Sequence, Tuple, List, Optional
-from datetime import datetime
+from dataclasses import dataclass
+from typing import Dict, Tuple
 
 import hydra
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
-import torch.nn as nn
 import torch.distributed
 import torch.multiprocessing
-import torch.nn.functional as F
 import torch.nn.parallel
-from torch.utils.data.dataloader import DataLoader
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data.dataloader import DataLoader
 
-from research.jaxrl.utils import make_env, make_unseen_env
-from research.logger import WandBLogger, WandBLoggerConfig, logger, stopwatch
+from research.finetune_omtm.replay_buffer import ReplayBuffer
+from research.jaxrl.utils import make_unseen_env
+from research.logger import logger
 from research.omtm.datasets.base import DatasetProtocol
 from research.omtm.distributed_utils import DistributedParams, get_distributed_params
 from research.omtm.tokenizers.base import Tokenizer, TokenizerManager
-from research.omtm.utils import (
-    get_cfg_hash,
-    get_ckpt_path_from_folder,
-    get_git_dirty,
-    get_git_hash,
-    set_seed_everywhere,
-)
-from research.finetune_omtm.replay_buffer import ReplayBuffer
+from research.omtm.utils import set_seed_everywhere
 from research.zeroshot_omtm.learner import Learner
 
 
@@ -247,6 +232,7 @@ def main(hydra_cfg):
         two_stage=two_stage,
         list_stage=list_stage,
     )
+
 
 @hydra.main(config_path=".", config_name="config_cheeta", version_base="1.1")
 def configure_jobs(hydra_data: DictConfig) -> None:

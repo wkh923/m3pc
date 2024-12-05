@@ -61,7 +61,7 @@ from research.omtm.masks import (
     create_rcbc_mask,
     maybe_add_rew_to_mask,
 )
-from research.omtm.models.mtm_model import omtm, make_plots_with_masks
+from research.omtm.models.mtm_model import make_plots_with_masks, omtm
 from research.omtm.tokenizers.base import Tokenizer, TokenizerManager
 from research.omtm.tokenizers.continuous import ContinuousTokenizer
 from research.omtm.utils import (
@@ -654,7 +654,7 @@ def train_one_batch(
     discrete_map: Dict[str, bool],
     batch: Dict[str, torch.Tensor],
     masks: Dict[str, torch.Tensor],
-    use_entropy: bool=True,
+    use_entropy: bool = True,
     loss_keys: Sequence[str] = None,
 ) -> Dict[str, Any]:
     encoded_batch = tokenizer_manager.encode(batch)

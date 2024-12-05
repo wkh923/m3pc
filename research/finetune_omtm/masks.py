@@ -1,6 +1,7 @@
+from typing import Dict, Optional, Sequence, Tuple, Union
+
 import numpy as np
 import torch
-from typing import Dict, Optional, Sequence, Tuple, Union
 
 
 def create_rcbc_mask(
@@ -30,7 +31,7 @@ def create_fd_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.T
     """Predict the state and rewards after idx given
     action-state pair history"""
     state_mask = np.zeros(traj_length)
-    state_mask[:idx + 1] = 1
+    state_mask[: idx + 1] = 1
     return_mask = np.zeros(traj_length)
     action_mask = np.ones(traj_length)
     reward_mask = np.zeros(traj_length)
@@ -42,13 +43,14 @@ def create_fd_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.T
         "returns": torch.from_numpy(return_mask).to(device),
     }
 
+
 def create_ret_mask(traj_length: int, device: str, idx: int) -> Dict[str, torch.Tensor]:
     """Predict the return at for idx state action pair given"""
     state_mask = np.zeros(traj_length)
-    state_mask[:idx + 1] = 1
+    state_mask[: idx + 1] = 1
     return_mask = np.zeros(traj_length)
     action_mask = np.zeros(traj_length)
-    action_mask[:idx + 1] = 1
+    action_mask[: idx + 1] = 1
     reward_mask = np.zeros(traj_length)
 
     return {
@@ -116,8 +118,8 @@ def create_random_autoregressize_mask(
                 masks[k][random_position:, :] = 0
             else:
                 masks[k][random_position + 1 :, :] = 0
-    if masks['actions'].eq(1).all():
-        masks['actions'][-1] = 0
+    if masks["actions"].eq(1).all():
+        masks["actions"][-1] = 0
 
     # print(random_mode, random_position)
     return masks

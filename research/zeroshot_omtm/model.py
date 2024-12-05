@@ -1,20 +1,13 @@
 # source: https://github.com/gwthomas/IQL-PyTorch
 # https://arxiv.org/pdf/2110.06169.pdf
 import copy
-import os
-import random
-import uuid
-from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import d4rl
 import gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 from torch.distributions import Normal
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
@@ -24,7 +17,6 @@ TensorBatch = List[torch.Tensor]
 EXP_ADV_MAX = 100.0
 LOG_STD_MIN = -20.0
 LOG_STD_MAX = 2.0
-
 
 
 def soft_update(target: nn.Module, source: nn.Module, tau: float):
@@ -145,17 +137,21 @@ class GaussianPolicy(nn.Module):
         state = torch.tensor(state.reshape(1, -1), device=device, dtype=torch.float32)
         dist = self(state)
         action = dist.mean if not self.training else dist.sample()
-        action = torch.clamp(self.max_action * action, -self.max_action, self.max_action)
+        action = torch.clamp(
+            self.max_action * action, -self.max_action, self.max_action
+        )
         return action.cpu().data.numpy().flatten()
-
-
-
 
 
 class TwinQ(nn.Module):
     def __init__(
-        self, state_dim: int, action_dim: int, obs_mean: torch.tensor,
-        obs_std: torch.tensor, hidden_dim: int = 256, n_hidden: int = 2
+        self,
+        state_dim: int,
+        action_dim: int,
+        obs_mean: torch.tensor,
+        obs_std: torch.tensor,
+        hidden_dim: int = 256,
+        n_hidden: int = 2,
     ):
         super().__init__()
         dims = [state_dim + action_dim, *([hidden_dim] * n_hidden), 1]
@@ -176,8 +172,14 @@ class TwinQ(nn.Module):
 
 
 class ValueFunction(nn.Module):
-    def __init__(self, state_dim: int, obs_mean: torch.tensor,
-        obs_std: torch.tensor, hidden_dim: int = 256, n_hidden: int = 2):
+    def __init__(
+        self,
+        state_dim: int,
+        obs_mean: torch.tensor,
+        obs_std: torch.tensor,
+        hidden_dim: int = 256,
+        n_hidden: int = 2,
+    ):
         super().__init__()
         dims = [state_dim, *([hidden_dim] * n_hidden), 1]
         self.v = MLP(dims, squeeze_output=True)
