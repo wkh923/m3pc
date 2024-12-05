@@ -11,14 +11,24 @@ conda create -n m3pc python=3.10
 conda activate m3pc
 ```
 
-Install torch with gpu
-https://pytorch.org/get-started/locally/
-
 
 Run these commands to install all dependencies
 ```
 conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.3 -c pytorch
+```
+```
 pip install -e .
+```
+## Troubleshooting
+
+For torch import issue, update MKL
+```
+conda install mkl==2024.0
+```
+
+For gym install issue, downgrade pip
+```
+pip install setuptools==65.5.0 pip==21 
 ```
 
 Optionally install dev packages.
@@ -52,6 +62,7 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
  ```
  python research/zeroshot_omtm/unseen.py --config-name=config_hopper
  ```
+change `--config-name` and select files from `waypoint_gen` folder for different tasks and different goals.
 
 # License & Acknowledgements
 This work is licensed under BSD 3-Clause License. See [LICENSE](LICENSE) for details. Third-party datasets and tools are subject to their respective licenses.
