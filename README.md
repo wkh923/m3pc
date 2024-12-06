@@ -1,5 +1,5 @@
 # M^3PC
-This is the code base for the paper `M^3PC: Test-Time Model Predictive Control using Pretrained Masked Trajectory Model`. This code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm).
+This is the code base for the paper `M^3PC: Test-Time Model Predictive Control for Pretrained Masked Trajectory Model`. This code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm).
 
 
 ## Install python packages from scratch
