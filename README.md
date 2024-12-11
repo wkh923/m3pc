@@ -1,5 +1,5 @@
 # M^3PC
-This is the code base for the paper `M^3PC: Test-Time Model Predictive Control for Pretrained Masked Trajectory Model`. This code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm).
+This is the code base for the paper [`M^3PC: Test-Time Model Predictive Control for Pretrained Masked Trajectory Model`](https://arxiv.org/abs/2412.05675). This code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm).
 
 
 ## Install python packages from scratch
@@ -64,6 +64,18 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
  ```
 change `--config-name` and select files from `waypoint_gen` folder for different tasks and different goals.
 You can also try modify the waypoint generation [script](https://github.com/wkh923/m3pc/blob/main/research/zeroshot_omtm/waypoint_gen/gen_and_vis.py) to control the wiggling frequency, visualizaing the waypoints and see to what extent the backward M3PC can follow 'unseen' state trajectory.
+
+## Citation
+If you find M^3PC useful in your research or if you refer to the results mentioned in our work, please star this repository and consider citing:
+
+```bibtex
+@article{M3PC,
+  title={M^3PC: Test-Time Model Predictive Control for Pretrained Masked Trajectory Model},
+  author={Kehan Wen and Yutong Hu and Yao Mu and Lei Ke},
+  journal={arxiv:2412.05675},
+  year={2024},
+}
+
 
 # License & Acknowledgements
 This work is licensed under BSD 3-Clause License. See [LICENSE](LICENSE) for details. Third-party datasets and tools are subject to their respective licenses.
