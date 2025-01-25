@@ -1,8 +1,14 @@
-# M^3PC
-This is the code base for the paper [`M^3PC: Test-Time Model Predictive Control for Pretrained Masked Trajectory Model`](https://arxiv.org/abs/2412.05675). This code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm).
+# M^3PC: Test-Time Model Predictive Control for Pretrained Masked Trajectory Model
+This repo is for the paper [`M^3PC: Test-Time Model Predictive Control for Pretrained Masked Trajectory Model`](https://arxiv.org/abs/2412.05675). The code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm).
 
+## Overview
+![M3PC](https://i.postimg.cc/T1sgpqd9/3way-ellip.png)
 
-## Install python packages from scratch
+**M^3PC** is an approach that leverages properly designed masking schemes to perform test-time MPC with pretrained masked trajectory models for decision making tasks. It enables action reconstruction with uncertainties for better robustness, as well as forward and backward prediction through different masking patterns for solving various downstream tasks. See detailed explanation and demo video  [here](https://drive.google.com/file/d/1d6gVwZK650SoQpsFqzc61LtQBlk0-p7Y/view?usp=sharing)
+
+## Usage
+
+### Install python packages from scratch
 If you want to make an env from scratch
 
 Make a new conda env
@@ -19,7 +25,7 @@ conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit
 ```
 pip install -e .
 ```
-## Troubleshooting
+### Troubleshooting
 
 For torch import issue, update MKL
 ```
@@ -36,7 +42,7 @@ Optionally install dev packages.
 pip install -r requirements_dev.txt
 ```
 
-## Experiments
+### Experiments
 
 Example commands can be found in `train_exsamples.sh`
 
@@ -65,7 +71,7 @@ The main code for offline RL (with online finetuning) and goal reaching is locat
 change `--config-name` and select files from `waypoint_gen` folder for different tasks and different goals.
 You can also try modify the waypoint generation [script](https://github.com/wkh923/m3pc/blob/main/research/zeroshot_omtm/waypoint_gen/gen_and_vis.py) to control the wiggling frequency, visualizaing the waypoints and see to what extent the backward M3PC can follow 'unseen' state trajectory.
 
-# Citation
+## Citation
 If you find M^3PC useful in your research or if you refer to the results mentioned in our work, please star this repository and consider citing:
 
 ```bibtex
