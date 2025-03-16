@@ -2,7 +2,7 @@
 This repo is for the paper [`M^3PC: Test-Time Model Predictive Control for Pretrained Masked Trajectory Model`](https://arxiv.org/abs/2412.05675). The code is built upon [facebookresearch/mtm](https://github.com/facebookresearch/mtm).
 
 ## Overview
-![M3PC](https://drive.google.com/file/d/1RrBWDYaAJHlv8cjYAVBnxXYtnDhJz7xE/view?usp=drive_link)
+![M3PC](https://drive.google.com/file/d/12CXuK9IHCH5OIEIqbRbWNHYV6WOAshqP/view?usp=drive_link)
 
 **M^3PC** is an approach that leverages properly designed masking schemes to perform test-time MPC with pretrained masked trajectory models for decision making tasks. It enables action reconstruction with uncertainties for better robustness, as well as forward and backward prediction through different masking patterns for solving various downstream tasks. See detailed explanation and demo video  [here](https://drive.google.com/file/d/1d6gVwZK650SoQpsFqzc61LtQBlk0-p7Y/view?usp=sharing)
 
