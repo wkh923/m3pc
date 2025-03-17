@@ -4,7 +4,7 @@ This repo is for the paper [`M^3PC: Test-Time Model Predictive Control for Pretr
 ## Overview
 ![M3PC](https://github.com/wkh923/m3pc/blob/main/3way-ellip-1.png)
 
-**M^3PC** is an approach that leverages properly designed masking schemes to perform test-time MPC with pretrained masked trajectory models for decision making tasks. It enables action reconstruction with uncertainties for better robustness, as well as forward and backward prediction through different masking patterns for solving various downstream tasks. See detailed explanation and demo video  [here](https://drive.google.com/file/d/1d6gVwZK650SoQpsFqzc61LtQBlk0-p7Y/view?usp=sharing)
+**M^3PC** is an approach that leverages properly designed masking schemes to perform test-time MPC with pretrained masked trajectory models for decision making tasks. It enables action reconstruction with uncertainties for better robustness, as well as forward and backward prediction through different masking patterns for solving various downstream tasks. Check our website [here](https://sites.google.com/view/m3pc).
 
 ## Usage
 
